@@ -348,7 +348,7 @@ class NarrativeEngine:
             if "summary" not in item:
                 item["summary"] = item.get("title", "章节摘要")
             if "title" not in item:
-                item["title"] = f"第{item.get('chapter_number', '?')}章"
+                item["title"] = f"第{item.get('chapter_number', '?')}章-情节推进"
             # 确保 sequence_id 存在
             if "sequence_id" not in item or not item["sequence_id"]:
                 item["sequence_id"] = sequence.id
@@ -422,9 +422,24 @@ class NarrativeEngine:
 {world_context[:1500]}
 
 {story_circle_guide}
+## 章节标题要求（非常重要）
+章节标题是读者对章节内容的第一印象，必须**直接反映该章核心事件或主题**，禁止使用"情节推进""剧情发展"等通用词汇。
+
+**标题格式**：第N章-核心主题（主题4-8字，简洁有力）
+**标题示例**：
+- 第1章-退婚之辱
+- 第2章-神秘玉佩
+- 第3章-青锋山脉
+- 第4章-意外传承
+- 第5章-宗门考核
+- 第6章-秘境奇遇
+- 第7章-生死之战
+- 第8章-真相大白
+
 ## 严格要求
-- 每章必须包含 summary（章节摘要，50字以内）
-- 每章必须包含 beats 数组，每个 beat 必须包含 id、description、dramatic_function、story_circle_step 字段
+- title（章节标题）：必须按照上述格式，主题必须具体且能概括本章核心内容
+- summary（章节摘要）：50字以内，简明扼要说明本章发生的关键事件
+- beats 数组：每个 beat 必须包含 id、description、dramatic_function、story_circle_step 字段
 - 章节编号从第 {actual_ch_start} 章开始
 - 必须生成 **恰好 {batch_count} 个**章纲，不多不少
 - 每章 {words_per_chapter} 字
@@ -451,13 +466,31 @@ class NarrativeEngine:
                     co.chapter_number = actual_ch_start + i
                     if co.target_words == 0:
                         co.target_words = words_per_chapter
+                    # 后处理：替换通用标题为有意义的标题
+                    if co.title and ("情节推进" in co.title or "剧情发展" in co.title or "章-" == co.title[-2:]):
+                        # 尝试从 beats 或 summary 提取关键词
+                        keywords = []
+                        if co.beats:
+                            for beat in co.beats:
+                                if beat.description:
+                                    keywords.extend(beat.description[:4].split()[:2])
+                        if co.summary:
+                            keywords.extend(co.summary[:8].split()[:2])
+                        if keywords:
+                            co.title = f"第{co.chapter_number}章-{''.join(keywords[:2])[:6]}"
+                        else:
+                            co.title = f"第{co.chapter_number}章-{sequence.key_events[0][:6] if sequence.key_events else '序章'}"
+                    # 清理标题末尾的标点符号
+                    if co.title:
+                        co.title = co.title.rstrip("，。！？：；、,.:;!?")
                 if len(outlines) > batch_count:
                     outlines = outlines[:batch_count]
                 elif len(outlines) < batch_count:
                     for j in range(len(outlines), batch_count):
+                        fallback_title = f"第{actual_ch_start + j}章-{sequence.key_events[j % len(sequence.key_events)][:6] if sequence.key_events else '序章'}"
                         outlines.append(ChapterOutlineSchema(
                             chapter_number=actual_ch_start + j,
-                            title=f"第{actual_ch_start + j}章",
+                            title=fallback_title,
                             summary=f"{sequence.summary}",
                             sequence_id=sequence.id,
                             beats=[BeatSchema(

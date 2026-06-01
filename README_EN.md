@@ -4,39 +4,268 @@
 
 ### AI-Powered Long-Form Novel Writing System
 
-**Making AI understand stories, not just write text.**
+**Make AI understand stories, not just write text.**
 
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100%2B-009688.svg)](https://fastapi.tiangolo.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-[Quick Start](#quick-start) · [Core Features](#core-features) · [Architecture](#architecture) · [API Reference](#api-reference) · [Internationalization](#internationalization)
+[Quick Start](#quick-start) · [Core Features](#core-features) · [Architecture](#architecture) · [Demo](#demo) · [API Documentation](#api-documentation)
+
+---
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Theory-Dramatica%20Narrative-9C27B0?style=for-the-badge" alt="Dramatica Theory"/>
+  &nbsp;
+  <img src="https://img.shields.io/badge/Engine-5%20Layer%20Agent%20Pipeline-FF9800?style=for-the-badge" alt="5-Layer Agent Pipeline"/>
+  &nbsp;
+  <img src="https://img.shields.io/badge/Narrative-Multi%20Threaded-2196F3?style=for-the-badge" alt="Multi-thread Narrative"/>
+  &nbsp;
+  <img src="https://img.shields.io/badge/Model-DeepSeek%2B%20Ollama-4CAF50?style=for-the-badge" alt="LLM Support"/>
+</p>
 
 </div>
+
+<p align="center">
+  <img src="docs/screenshots/worldview.png" alt="Worldbuilding Configuration" width="860"/>
+</p>
+<p align="center"><i>Worldbuilding — Visual configuration of characters, factions, locations, and world rules</i></p>
 
 ---
 
 ## What is Dramatica-Flow?
 
-Dramatica-Flow is an **AI-assisted novel writing platform** built on **Dramatica narrative theory**. Unlike generic AI text generators, it enforces structural story logic through:
+Dramatica-Flow is an **AI-assisted novel writing platform** for web novel authors and professional writers. Unlike simple "AI text generators," it is an intelligent writing system built on **Dramatica narrative theory**—
 
-- **Causal Chain Engine** — Every event must answer "Why → What → Consequence → Decision"
-- **Hook Lifecycle** — Foreshadowing tracking with auto-warnings for unresolved threads
-- **Emotional Arcs** — Per-character emotion tracking (1–10 intensity scale)
-- **Relationship Network** — Dynamic character relationships (-100 to +100)
-- **Multi-thread Narrative** — Global timeline with parallel story management
-- **Information Boundaries** — Characters can only know what they've witnessed
+The system abstracts novel writing into a quantifiable, trackable, and auditable engineering process. Through **causal chain management, emotional arc tracking, hook systems, relationship networks, multi-threaded narrative, and information boundaries**, it ensures AI-generated content has genuine narrative logic and internal consistency, rather than being loose piles of events.
 
-### Key Differences from Generic AI Writers
+### Key Differences from Generic AI Writing Tools
 
-| Aspect | Generic AI Writers | **Dramatica-Flow** |
-|--------|-------------------|--------------------|
-| Narrative logic | Paragraph-by-paragraph, no global causality | **Forced causal chain modeling** |
-| Character consistency | Prone to OOC (out-of-character) | **Information boundary system** |
-| Long-form coherence | Frequent contradictions | **World state snapshots + truth files** |
-| Foreshadowing | None | **Full lifecycle: plant → track → warn → resolve** |
-| Quality control | No auditing | **3-layer audit: rules → narrative → revision loop** |
-| Multi-thread stories | None | **Global timeline with cross-thread awareness** |
+| Dimension | Generic AI Writing Tools | **Dramatica-Flow** |
+|-----------|-------------------------|----------------------|
+| Narrative Logic | Paragraph-by-paragraph, no global causality | **Forced causal chain modeling**: Every event must answer "why → what happened → what followed" |
+| Character Consistency | Prone to OOC (Out of Character) | **Information boundary system**: Characters only know what they've seen/heard, eliminating omniscient perspective contamination |
+| Long-Form Coherence | Frequent contradictions | **World state snapshots + truth files**: State accumulates between chapters, never lost |
+| Hook Management | None | **Hook lifecycle**: Plant → track → warn → resolve, automatic overdue reminders |
+| Quality Control | No auditing | **3-layer audit mechanism**: Rule verification → narrative audit → revision loop (max 2 rounds) |
+| Multi-Threaded Narrative | None | **Global timeline**: Multi-thread scheduling, cross-thread awareness, inactive thread warnings |
+
+---
+
+## Core Features
+
+### 1. Causal Chain Engine — The Skeleton of Story
+
+Every event follows strict causal structure:
+
+```
+Ch.1: Breakup in Public
+├── Cause     : The Mu family believes Lin Chen (useless spiritual root) can't bring benefits
+├── Event     : Lin Chen suffers public humiliation
+├── Effect    : Lin Chen makes a three-year pact
+└── Decision  : Lin Chen ventures alone into Qingfeng Mountain, risking everything to cultivate
+```
+
+AI writing is forced to inject causal chain context, ensuring every chapter is a natural continuation of previous causes, not randomly concatenated scenes.
+
+### 2. Smart Hook System — Unforgotten Promises
+
+Automatically manages four types of narrative promises:
+
+| Type | Description | Example |
+|------|-------------|---------|
+| **Foreshadow** | Hidden setup | A mysterious jade pendant in Ch.3 reveals identity in Ch.28 |
+| **Promise** | Reader commitment | "Three-year pact" must be fulfilled within three years |
+| **Mystery** | Unsolved puzzle | Where did the vanished spiritual power in the secret room go? |
+| **Conflict** | Unresolved tension | When will the two factions' shadow war erupt? |
+
+The system automatically tracks hook status and warns when overdue, eliminating "plot holes left unfilled."
+
+### 3. Emotional Arcs — Visual Character Growth
+
+1-10 intensity emotion tracking per character, supporting Dramatica's dual-need model: **external goals** (visible, quantifiable) vs. **internal desires** (what the character truly needs but doesn't realize).
+
+```
+Lin Chen's emotional curve:
+  Humiliation(9) → Anger(8) → Shock(7) → Resolve(7) → Confidence(6) → Fear(9) → Determination(10)
+                                                                     ↑
+                                                               Character arc complete
+```
+
+### 4. Character Relationship Network — Dynamic Interpersonal Graph
+
+Relationship strength ranges from **-100 (sworn enemies) to +100 (sworn allies)**, automatically updated after every event:
+
+```python
+# Relationship change examples
+"Lin Chen-Mu Xue": +20, Mu Xue sees Lin Chen risking injury to save her
+"Lin Chen-Xiao Tian": -30, Xiao Tian's secret alliance with demons exposed
+```
+
+### 5. Multi-Threaded Narrative — Global Timeline Scheduling
+
+Supports **main plot, subplot, parallel, and flashback** threads, each with independent:
+- POV character and character group
+- Goal arc and growth trajectory
+- Word count weight (automatic allocation adjustment)
+- Inactivity warning (automatically alerts after 5+ inactive chapters)
+
+Global timeline records "who, when, where, what" — the "God's view" ledger for multi-threaded narratives.
+
+### 6. Information Boundaries — No Omniscient Contamination
+
+Each character maintains independent knowledge records:
+
+```python
+@dataclass
+class KnownInfoRecord:
+    character_id: str      # Who knows
+    info_key: str          # What information
+    content: str           # Specific details
+    learned_in_chapter: int    # In which chapter learned
+    source: Literal["witnessed", "hearsay", "deduced", "document"]  # Information source
+```
+
+**Characters cannot know what they haven't seen** — this is one of the most fundamental differences between Dramatica-Flow and other AI writing tools.
+
+---
+
+## Architecture
+
+### 5-Layer Agent Writing Pipeline
+
+```
+Snapshot Backup
+    ↓
+① Architect Agent — Plan blueprint (causal chain context + previous summary + hook status + cross-thread awareness)
+    ↓
+② Writer Agent — Generate main text + post-writing settlement table (position/emotion/relationship/hook changes)
+    ↓
+③ Post-Write Validator — Zero-LLM hard rule checks (word count, forbidden words, format)
+    ↓ error → spot-fix
+④ Auditor Agent — Narrative quality audit (temperature=0 for objective consistency)
+    ↓ critical → Reviser Agent → re-audit (max 2 rounds)
+⑤ Causal Chain Extractor — Extract causal relationships from text → write to world state
+    ↓
+Summary Generator — Chapter summary injects into truth files
+    ↓
+State Settlement — Apply post-writing settlement table → world_state.json
+    ↓
+Timeline + Thread Status Update
+```
+
+### Dramatica Theory Integration
+
+System includes complete **Dramatica character role system**:
+
+| Role | Chinese | Narrative Purpose |
+|------|---------|------------------|
+| Protagonist | 主角 | Core force driving the story forward |
+| Antagonist | 反派 | Adversary opposing the protagonist's goals |
+| Impact Character | 冲击者 | Key figure changing protagonist's perception |
+| Guardian | 守护者 | Mentor/guide |
+| Contagonist | 阻碍者 | Appears helpful but actually delays |
+| Sidekick | 伙伴 | Loyal supporter |
+| Skeptic | 怀疑者 | Questioning and opposing voice |
+
+And **10 dramatic function beats**: Setup, Inciting Incident, Turning Point, Midpoint, Crisis, Climax, Reveal, Decision, Consequence, Transition.
+
+### Tech Stack
+
+```
+┌──────────────────────────────────────────────────┐
+│                   Web UI Layer                    │
+│   Modern SPA · 7 feature modules · Timeline view  │
+├──────────────────────────────────────────────────┤
+│                  REST API Layer                   │
+│   FastAPI · 50+ endpoints · Pydantic validation   │
+├──────────────────────────────────────────────────┤
+│                Agent Pipeline Layer               │
+│   Architect · Writer · Auditor · Reviser · Summary│
+├──────────────────────────────────────────────────┤
+│              Narrative Engine Layer               │
+│   Causal chain · Hook system · Emotional arcs    │
+│   Relationships · Multi-threaded narrative      │
+│   Information boundaries · World state           │
+├──────────────────────────────────────────────────┤
+│                LLM Abstraction Layer              │
+│   DeepSeek API · Ollama local · OpenAI compatible│
+└──────────────────────────────────────────────────┘
+```
+
+---
+
+## Demo
+
+### Web UI — One-Stop Creative Console
+
+After starting the service, visit `http://localhost:8766` for a complete visual management interface:
+
+**7 Feature Modules:**
+
+| Module | Functionality |
+|--------|--------------|
+| **Overview Panel** | Book progress, chapter statistics, hook status overview |
+| **Story Configuration** | Character/faction/location/world rule creation & editing |
+| **Outline Management** | AI-generated story outlines, act filtering, sequence planning, linked continuation |
+| **Chapter Writing** | AI writing, manual revision, audit results viewing |
+| **Story Tracking** | Real-time visualization of causal chains, emotional arcs, hooks, relationships |
+| **Timeline** | Multi-thread narrative swimlane view, character activity tracking, zoom navigation |
+| **System Settings** | LLM backend switching, model configuration |
+
+### Worldbuilding Configuration
+
+Visually build your story world in Web UI — character settings (Dramatica roles, dual needs, personality locking), faction relationships, location network, world rules, providing complete worldview context for AI writing.
+
+<p align="center">
+  <img src="docs/screenshots/worldview-detail.png" alt="Worldbuilding Configuration Details" width="860"/>
+</p>
+
+### Outline Planning
+
+Automatically generate three-act structure outlines based on Dramatica theory, with support for act filtering, sequence planning, and dramatic function beat labeling. After outline completion, one-click generation of chapter-by-chapter outlines, clarifying narrative tasks and emotional goals for each chapter.
+
+<p align="center">
+  <img src="docs/screenshots/outline.png" alt="Outline Planning" width="860"/>
+</p>
+
+### Linked Outline Continuation
+
+Story outlines and chapter outlines support **linked continuation**: when story outline continues with new sequences, chapter outline continuation automatically detects unexpanded sequences, prioritizing planning based on new sequence's narrative goals, key events, and ending hooks rather than blind self-rolling. When all sequences are covered, automatically falls back to free continuation mode based on existing chapter outline tail.
+
+### AI Writing
+
+Based on outline and chapter outlines, AI automatically generates chapter content according to causal chain context, previous summary, and hook status. After writing completion, system automatically extracts settlement table (character position/emotional changes/relationship changes/hook toggles) and updates world state.
+
+<p align="center">
+  <img src="docs/screenshots/writing.png" alt="AI Writing Interface" width="860"/>
+</p>
+
+### Audit & Revision
+
+Three-layer audit automatically triggers after each chapter completion: **Rule verification** (word count/forbidden words/format hard rules) → **Narrative audit** (causal consistency/character OOC/hook omission dimensions) → **Revision loop** (critical issues auto-revised, max 2 rounds).
+
+<p align="center">
+  <img src="docs/screenshots/audit.png" alt="Audit Results" width="860"/>
+</p>
+
+### Timeline Swimlane View
+
+Independent timeline page (`/timeline`) provides:
+
+- **Multi-thread swimlanes**: Each narrative thread has independent swimlane, events distributed by chapter
+- **Chapter range slider**: Drag to focus on specific chapter interval, quick navigation for long works
+- **Mini overview heat bar**: Top shows full work event density, one-click jump to interesting areas
+- **Same-chapter event staggering**: Multiple events in same chapter automatically vertically staggered to avoid overlap
+- **Key node filtering**: Filter/highlight by event type (hook planting/resolve, emotional turns, etc.)
+- **Character activity tracking**: Shows character positions and actions in each chapter
+- **Zoom control**: Freely adjust swimlane density for different lengths
+- **Act structure background**: Three-act structure visual sections
+
+<p align="center">
+  <img src="docs/screenshots/timeline.png" alt="Multi-Thread Narrative Timeline" width="860"/>
+</p>
+<p align="center"><i>Multi-Thread Narrative Timeline — Swimlane view showing thread event distribution, character activity, and key nodes</i></p>
 
 ---
 
@@ -44,53 +273,53 @@ Dramatica-Flow is an **AI-assisted novel writing platform** built on **Dramatica
 
 ### Prerequisites
 
-- **Python** >= 3.11 ([Download](https://www.python.org/downloads/) — check "Add Python to PATH" during install)
+- **Python** >= 3.11 ([Download](https://www.python.org/downloads/), check "Add Python to PATH" during installation)
 - **LLM Backend** (choose one): DeepSeek API key or Ollama local environment
 
 ### Installation
 
 ```bash
+# Clone repository
 git clone https://github.com/ydsgangge-ux/dramatica-flow.git
 cd dramatica-flow
 ```
 
-**One-click install (Recommended):**
+**One-Click Installation (Recommended):**
 
 | OS | Action |
 |----|--------|
 | Windows | Double-click `install.bat` |
 | Linux / macOS | `bash install.sh` |
 
-The script automatically handles:
-- Python version check (prompts download if < 3.11)
-- Install all dependencies (auto-fills missing packages)
-- Create `.env` config file (if not exists)
-- Generate startup script `launch_web.bat` / `start.sh`
+Script automatically handles all steps:
+- Checks Python version (prompts download if <3.11)
+- Installs all dependencies (auto-fills missing packages)
+- Creates `.env` config file (if doesn't exist)
 
-**Manual install (if script fails):**
+**Manual Installation (if script fails):**
 
 ```bash
 python -m pip install -e .
 ```
 
-### Configure AI Backend
+### Configure LLM Backend
 
-After installation, open the `.env` file in the project root with any text editor and configure **one of the following**:
+After installation, open `.env` file in project root with a text editor and configure **one of the following**:
 
-**Option A: DeepSeek API (Best quality, paid)**
+**Option A: DeepSeek API (Best Quality, Paid)**
 
-1. Register at [DeepSeek Platform](https://platform.deepseek.com) and get an API Key
-2. Replace `sk-xxx` in `.env` with your real API Key
+1. Register at [DeepSeek Platform](https://platform.deepseek.com) and get API Key
+2. Replace `sk-xxx` with your real API Key in `.env`
 
 ```env
 LLM_PROVIDER=deepseek
-DEEPSEEK_API_KEY=your-real-api-key
+DEEPSEEK_API_KEY=your_real_api_key
 ```
 
-**Option B: Ollama Local Model (Free)**
+**Option B: Ollama Local Model (Completely Free)**
 
 1. Download and install from [ollama.ai](https://ollama.ai)
-2. Run `ollama pull qwen2.5` in terminal to download a model
+2. Run `ollama pull qwen2.5` in terminal to download model
 3. Update `.env`:
 
 ```env
@@ -103,146 +332,69 @@ OLLAMA_MODEL=qwen2.5
 ### Launch
 
 ```bash
-# Windows: double-click launch_web.bat (auto-opens browser)
-# Linux/macOS: ./start.sh
+# Windows: Double-click `启动服务器.bat` or `启动网页界面.bat` (auto-opens browser)
+# Linux/macOS: python -m uvicorn core.server:app --reload --port 8766
 
 # Or manually:
 python -m uvicorn core.server:app --reload --port 8766
 ```
 
-Then open **http://localhost:8766** in your browser.
+Then visit **http://localhost:8766** to get started.
 
 ### Import Existing Novel
 
-If you already have a completed novel, you can extract its worldview via an external LLM and import it:
+If you already have a completed novel (like 100k words), you can extract worldview through external LLM and import:
 
-1. Open the [extraction prompt template](templates/novel_extract_prompt.md), copy the prompt and JSON format
-2. Send the prompt + full novel text to an external LLM (e.g., [DeepSeek Chat](https://chat.deepseek.com), free with ultra-long context)
-3. Copy the JSON output from the LLM
-4. In Web UI **Step 3**, click **"Import JSON"** and paste it in
-
----
-
-## Core Features
-
-### 1. Causal Chain Engine — The Story's Skeleton
-
-Every event follows a strict causal structure:
-
-```
-Ch.1: Public Humiliation
-├── Cause     : The Mu family considers Lin Chen (waste spiritual root) worthless
-├── Event     : Lin Chen is publicly humiliated
-├── Effect    : Lin Chen makes a three-year pact
-└── Decision  : Lin Chen → ventures into Qingfeng Mountain alone
-```
-
-### 2. Smart Hook System — No Forgotten Promises
-
-Manages four types of narrative commitments:
-
-| Type | Description | Example |
-|------|-------------|---------|
-| **Foreshadow** | Hidden clues | A mysterious jade pendant in Ch.3, reveals identity in Ch.28 |
-| **Promise** | Reader commitment | A "three-year pact" that must be fulfilled |
-| **Mystery** | Unsolved questions | Where did the vanished spiritual energy go? |
-| **Conflict** | Unresolved tension | When will the two factions' shadow war erupt? |
-
-Auto-tracks hook status with overdue warnings.
-
-### 3. Emotional Arcs — Visual Character Growth
-
-1–10 intensity emotion tracking per character, supporting Dramatica's dual-need model: **external goal** (visible, quantifiable) vs. **internal need** (what the character truly needs but doesn't realize).
-
-### 4. Relationship Network — Dynamic Interpersonal Graph
-
-Relationship strength ranges from **-100 (mortal enemy) to +100 (sworn ally)**, auto-updated after each event.
-
-### 5. Multi-thread Narrative — Global Timeline
-
-Supports **main plot, subplot, parallel, and flashback** threads, each with:
-- Dedicated POV characters
-- Independent goal arcs
-- Weight-based word count allocation
-- Dormancy warnings (auto-alert after 5+ chapters of inactivity)
-
-### 6. Information Boundaries — No Omniscient Contamination
-
-Each character maintains an independent knowledge record:
-
-```python
-@dataclass
-class KnownInfoRecord:
-    character_id: str      # Who knows it
-    info_key: str          # What information
-    content: str           # Specific details
-    learned_in_chapter: int
-    source: Literal["witnessed", "hearsay", "deduced", "document"]
-```
-
-**Characters cannot know what they haven't seen** — this is the fundamental difference.
+1. Open [Extraction Prompt Template](templates/novel_extract_prompt.md), copy prompt and JSON format instructions
+2. Send prompt + full novel text to external LLM (like [DeepSeek Chat](https://chat.deepseek.com), free, supports very long contexts)
+3. Copy JSON output from LLM
+4. In Web UI **Step 3 Worldbuilding Configuration**, click **"Import JSON"** and paste
 
 ---
 
-## Architecture
-
-### 5-Layer Agent Pipeline
+## Writing Workflow
 
 ```
-Snapshot Backup
-    ↓
-① Architect Agent ── Plans blueprint (causal chain context + prior summary + hook status)
-    ↓
-② Writer Agent ── Generates chapter text + settlement table
-    ↓
-③ Post-write Validator ── Zero-LLM hard rule checks (word count, forbidden words, format)
-    ↓ error → spot-fix
-④ Auditor Agent ── Narrative quality audit (temperature=0 for objectivity)
-    ↓ critical → Reviser Agent → re-audit (max 2 rounds)
-⑤ Causal Chain Extractor ── Extracts causality from text → writes to world state
-    ↓
-Summary Generator ── Chapter summary → truth files
-    ↓
-State Settlement ── Positions / emotions / relationships / hooks → world_state.json
-```
-
-### Dramatica Theory Integration
-
-Built-in **Dramatica character role system**: Protagonist, Antagonist, Impact Character, Guardian, Contagonist, Sidekick, Skeptic, Reason, Emotion, Love Interest, Mentor, Supporting.
-
-Plus **11 dramatic function beats**: Setup, Inciting Incident, Turning Point, Midpoint, Crisis, Climax, Reveal, Decision, Consequence, Transition.
-
-### Tech Stack
-
-```
-┌──────────────────────────────────────────────────┐
-│                   Web UI Layer                    │
-│   Modern SPA · 7 feature modules · Timeline view  │
-├──────────────────────────────────────────────────┤
-│                  REST API Layer                   │
-│   FastAPI · 50+ endpoints · Pydantic validation   │
-├──────────────────────────────────────────────────┤
-│                 Agent Pipeline Layer              │
-│   Architect · Writer · Auditor · Reviser · Summary│
-├──────────────────────────────────────────────────┤
-│               Narrative Engine Layer              │
-│   Causal chain · Hooks · Emotions · Relationships │
-│   Multi-thread · Info boundaries · World state     │
-├──────────────────────────────────────────────────┤
-│                  LLM Abstraction Layer             │
-│   DeepSeek API · Ollama local · OpenAI compatible │
-└──────────────────────────────────────────────────┘
+① Create Book        df book --title "My Novel" --genre "Xuanhuan" --chapters 100
+       ↓
+② Initialize Config  Configure characters, factions, locations, world rules in Web UI
+       ↓
+③ Generate Outline   AI automatically generates three-act structure outline based on Dramatica theory
+       ↓
+④ Chapter Writing    AI writing → rule verification → narrative audit → revision loop
+       ↓
+⑤ Story Tracking     Real-time monitoring of causal chains, emotional arcs, hook status
+       ↓
+⑥ Export Final       One-click export to Markdown / full text review
 ```
 
 ---
 
-## API Reference
+## CLI Reference
 
-The system provides **50+ REST API endpoints**:
+| Command | Description |
+|---------|-------------|
+| `df init <name>` | Initialize project |
+| `df book --title "My Novel" --genre "Xuanhuan" --chapters 100` | Create new book |
+| `df setup init-templates <book>` | Initialize config templates |
+| `df setup load <book>` | Load config into world state |
+| `df write <book>` | AI write next chapter |
+| `df write <book> --count 5` | Write 5 chapters consecutively |
+| `df audit <book> <chapter>` | Audit specific chapter |
+| `df revise <book> <chapter>` | Revise chapter |
+| `df status <book>` | View book status |
+| `df export <book>` | Export full book |
+| `df doctor` | Diagnose project configuration |
+
+---
+
+## API Documentation
+
+System provides **50+ REST API endpoints**, complete coverage of creative workflow.
 
 ### Book Management
 ```
-GET    /api/books                            # List books
+GET    /api/books                            # Book list
 POST   /api/books                            # Create book
 GET    /api/books/{id}                       # Book details
 DELETE /api/books/{id}                       # Delete book
@@ -250,17 +402,19 @@ DELETE /api/books/{id}                       # Delete book
 
 ### Story Configuration
 ```
-GET    /api/books/{id}/setup/status          # Setup status
+GET    /api/books/{id}/setup/status          # Config status
 POST   /api/books/{id}/setup/init            # Initialize config templates
 GET    /api/books/{id}/setup/{type}          # Get config (characters/factions/locations/events)
 PUT    /api/books/{id}/setup/{type}          # Update config
 POST   /api/books/{id}/setup/load            # Load config into world state
 ```
 
-### AI Generation
+### AI Writing Core
 ```
-POST   /api/books/{id}/ai-generate/outline           # AI generate outline
-POST   /api/books/{id}/ai-generate/chapter-outlines  # AI generate chapter outlines
+POST   /api/books/{id}/ai-generate/outline            # AI generate story outline
+POST   /api/books/{id}/ai-continue/outline            # AI continue story outline
+POST   /api/books/{id}/ai-generate/chapter-outlines   # AI generate chapter outlines
+POST   /api/books/{id}/continue-writing               # Continue chapter outlines (linked story outline)
 POST   /api/books/{id}/ai-generate/detailed-outline   # AI generate detailed chapter outline
 POST   /api/books/{id}/ai-generate/chapter-content    # AI generate chapter content
 POST   /api/books/{id}/ai-rewrite-segment             # AI rewrite specific segment
@@ -283,7 +437,7 @@ GET    /api/books/{id}/timeline              # Global timeline
 ### Story Analysis
 ```
 POST   /api/books/{id}/extract-from-novel    # Extract worldview from existing novel
-POST   /api/books/{id}/extract-story-state   # Extract story state (characters/events/relations)
+POST   /api/books/{id}/extract-story-state   # Extract story state (characters/events/relationships)
 POST   /api/books/{id}/three-layer-audit     # Three-layer audit
 GET    /api/books/{id}/audit-results         # Audit results list
 ```
@@ -292,7 +446,7 @@ GET    /api/books/{id}/audit-results         # Audit results list
 ```
 GET    /api/settings                         # Get settings
 POST   /api/settings                         # Update settings
-GET    /api/settings/status                  # Settings health check
+GET    /api/settings/status                  # Settings status check
 ```
 
 ---
@@ -300,273 +454,71 @@ GET    /api/settings/status                  # Settings health check
 ## Project Structure
 
 ```
-dramatica_flow/
+dramatica-flow/
 ├── core/                           # Core engine
 │   ├── agents/                     # AI Agents (Architect/Writer/Auditor/Reviser/Summary)
 │   ├── llm/                        # LLM abstraction layer (DeepSeek + Ollama)
-│   ├── narrative/                  # Narrative engine (outline parsing, causal extraction)
+│   ├── narrative/                  # Narrative engine (outline parsing, causal chain extraction)
 │   ├── state/                      # State management (world state, truth files, snapshots)
-│   ├── types/                      # Data types (characters/events/causal_chain/hooks...)
+│   ├── types/                      # Data type definitions (characters/events/causal chains/hooks...)
 │   ├── validators/                 # Content validators (zero-LLM hard rules)
 │   ├── pipeline.py                 # 5-layer writing pipeline
-│   └── server.py                   # FastAPI server (50+ endpoints)
+│   └── server.py                   # FastAPI service (50+ endpoints)
 ├── cli/                            # CLI tools
-│   ├── main.py                     # CLI entry (Typer)
-│   └── commands/                   # Subcommands
+│   └── main.py                     # CLI entry (Typer)
 ├── books/                          # Book data directory
 ├── templates/                      # Config templates + extraction prompts
-├── tests/                          # Test suite (30+ cases)
+├── tests/                          # Test suite (89 cases)
 ├── docs/                           # Documentation
-│   ├── CHANGELOG.md
-│   ├── OLLAMA_GUIDE.md
-│   ├── QUICKSTART.md
+│   ├── CHANGELOG.md                # Changelog
+│   ├── OLLAMA_GUIDE.md             # Ollama configuration guide
+│   ├── QUICKSTART.md               # Quick start
+│   ├── PROJECT_STATUS.md           # Project status
+│   ├── ARCHITECTURE_DESIGN.md      # Architecture design document
+│   ├── FUNCTIONAL_DESIGN.md        # Functional design document
+│   ├── METHODS_DOCUMENTATION.md    # Methodology documentation
 │   └── screenshots/                # UI screenshots
-├── dramatica_flow_web_ui.html      # Main Web UI
+├── dramatica_flow_web_ui.html      # Web UI main interface
 ├── dramatica_flow_timeline.html    # Timeline swimlane view
-├── install.bat                     # Windows one-click installer
-├── install.sh                      # Linux/macOS installer
+├── install.bat                     # Windows one-click install
+├── install.sh                      # Linux/macOS one-click install
+├── 启动服务器.bat                   # Windows start service
+├── 启动网页界面.bat                  # Windows start and open browser
 ├── .env.example                    # Environment variable template
-└── pyproject.toml                  # Project config
+├── pyproject.toml                  # Project config
+└── setup.py                        # Package installation entry
 ```
-
----
-
-## Internationalization
-
-> **Note:** The default interface and prompts are in Chinese. To use Dramatica-Flow in another language, you need to modify the following files. This guide covers what to change and where.
-
-### Overview of Required Changes
-
-| Module | Files to Modify | Effort | Description |
-|--------|----------------|--------|-------------|
-| **Web UI** | `dramatica_flow_web_ui.html` | Medium | ~200+ hardcoded Chinese strings |
-| **Timeline UI** | `dramatica_flow_timeline.html` | Small | ~50 Chinese labels |
-| **LLM Prompts** | `core/server.py`, `core/pipeline.py`, `core/agents/__init__.py` | Large | ~50+ prompt templates |
-| **Templates** | `templates/*.json` | Small | Field descriptions and placeholders |
-| **CLI Output** | `cli/main.py`, `cli/commands/` | Small | Help text and status messages |
-| **Error Messages** | `core/server.py` | Small | HTTP error messages |
-
----
-
-### 1. Web UI Localization
-
-**File:** `dramatica_flow_web_ui.html`
-
-All UI text is hardcoded as Chinese strings. To localize:
-
-**Step 1:** Add a language configuration at the top of the `<script>` section:
-
-```javascript
-// Add near the top of <script>
-const LANG = {
-  // Navigation
-  "nav.overview": "Overview",
-  "nav.config": "Story Config",
-  "nav.outline": "Outline",
-  "nav.chapters": "Chapters",
-  "nav.tracking": "Story Tracking",
-  "nav.timeline": "Timeline",
-  "nav.settings": "Settings",
-
-  // Buttons
-  "btn.create": "Create",
-  "btn.save": "Save",
-  "btn.delete": "Delete",
-  "btn.cancel": "Cancel",
-  "btn.generate": "AI Generate",
-  "btn.audit": "Audit",
-  "btn.export": "Export",
-
-  // ... add all other strings you need
-};
-
-function t(key) {
-  return LANG[key] || key;
-}
-```
-
-**Step 2:** Replace hardcoded Chinese text with `t()` calls:
-
-```javascript
-// Before:
-innerHTML = `<div class="card-header">因果链 (${causal.length})</div>`;
-
-// After:
-innerHTML = `<div class="card-header">${t('tracking.causal_chain')} (${causal.length})</div>`;
-```
-
-**Key areas to translate in the HTML file:**
-
-| Line Range | Content |
-|------------|---------|
-| Top navigation bar | Step labels: 创建书籍, 故事配置, 大纲, etc. |
-| `renderOverview()` | Dashboard statistics labels |
-| `renderConfig()` | Character/faction/location form labels |
-| `renderOutline()` | Act names, sequence labels |
-| `renderChapters()` | Chapter list labels, audit buttons |
-| `renderStoryTracking()` | Section labels for causal chain, hooks, emotions, relationships |
-| `renderSettings()` | Form labels, model names |
-| All `alert()` / `confirm()` calls | Dialog messages |
-
----
-
-### 2. Timeline UI Localization
-
-**File:** `dramatica_flow_timeline.html`
-
-Similar approach — replace Chinese labels in the sidebar, header, and rendering functions.
-
-Key areas:
-- Thread type badges: 主线, 支线, 并行线, 闪回线
-- Status badges: 活跃, 休眠, 已完结, 已合并
-- Column headers: 章节, 角色, 地点, 行动
-
----
-
-### 3. LLM Prompt Translation (Most Important)
-
-This is the **most critical** change — it determines what language the AI outputs.
-
-**File:** `core/server.py`
-
-All prompts sent to the LLM are in Chinese. Search for `prompt = f"""` or `prompt = """` patterns.
-
-**Key prompt locations in `core/server.py`:**
-
-| Approximate Line | Endpoint | What It Does |
-|-----------------|----------|--------------|
-| ~975 | `extract-story-state` | Extracts story state from chapter text |
-| ~827 | `ai-generate/setup` | Generates character/faction/location configs |
-| ~1166 | `ai-generate/outline` | Generates story outline |
-| ~1268 | `ai-generate/chapter-outlines` | Generates chapter outlines |
-| ~1668 | `ai-generate/detailed-outline` | Generates detailed chapter outline |
-| ~1789 | `ai-generate/chapter-content` | Generates chapter content |
-
-**Example — Before (Chinese):**
-
-```python
-prompt = f"""你是一位小说分析专家。请仔细阅读以下章节正文，提取其中的故事状态变化。
-请严格按以下 JSON 结构输出（直接输出 JSON，不要任何说明）："""
-```
-
-**Example — After (English):**
-
-```python
-prompt = f"""You are a novel analysis expert. Carefully read the following chapter text and extract story state changes.
-Output strictly in the following JSON format (JSON only, no explanations):"""
-```
-
-**Important:** When translating prompts, also update:
-- **JSON field names in examples** — Keep them in English for consistency
-- **Analysis instructions** — Translate all Chinese instructions
-- **Character name hints** — Keep actual character names as-is
-
-**File:** `core/pipeline.py`
-
-The pipeline contains prompts in the agent classes (Architect, Writer, Auditor, etc.). These are imported from `core/agents/__init__.py`.
-
-**File:** `core/agents/__init__.py`
-
-Search for all prompt templates (look for `prompt`, `system_prompt`, or `PROMPT` variables) and translate them.
-
----
-
-### 4. Template Files
-
-**Files:** `templates/characters.json`, `templates/world.json`, `templates/events.json`
-
-These are JSON config templates with Chinese field descriptions. Translate the `description`, `placeholder`, and example values:
-
-```json
-// Before:
-{"name": "character_name", "label": "角色名", "description": "角色在小说中的名字"}
-
-// After:
-{"name": "character_name", "label": "Character Name", "description": "Character's name in the novel"}
-```
-
----
-
-### 5. CLI Localization
-
-**File:** `cli/main.py`
-
-The Typer CLI has Chinese help text and status messages. Key areas:
-
-```python
-# Before:
-@app.command(help="创建新书")
-def book(...):
-
-# After:
-@app.command(help="Create a new book")
-def book(...):
-```
-
----
-
-### 6. Error Messages
-
-**File:** `core/server.py`
-
-HTTP error responses contain Chinese messages:
-
-```python
-# Before:
-raise HTTPException(404, f"第 {req.chapter} 章不存在")
-
-# After:
-raise HTTPException(404, f"Chapter {req.chapter} not found")
-```
-
----
-
-### Quick Localization Checklist
-
-If you want to adapt Dramatica-Flow to your language, follow this order:
-
-- [ ] **1. LLM Prompts** (`core/server.py`, `core/agents/__init__.py`, `core/pipeline.py`) — This is the **highest priority**. Without this, the AI will still output Chinese.
-- [ ] **2. Web UI** (`dramatica_flow_web_ui.html`) — Translate all visible text.
-- [ ] **3. Timeline UI** (`dramatica_flow_timeline.html`) — Translate labels.
-- [ ] **4. Templates** (`templates/*.json`) — Translate field descriptions.
-- [ ] **5. Error Messages** (`core/server.py`) — Translate HTTP error responses.
-- [ ] **6. CLI** (`cli/main.py`) — Translate help text (optional, Web UI is primary).
-
-> **Tip:** The core logic (causal chain, hook management, audit pipeline, world state) is **language-agnostic**. You only need to translate the interface layer and prompts — no architectural changes required.
-
----
-
-## CLI Reference
-
-| Command | Description |
-|---------|-------------|
-| `df book` | Create a new book |
-| `df setup init-templates <book>` | Initialize config templates |
-| `df setup load <book>` | Load configuration |
-| `df write <book>` | AI write next chapter |
-| `df write <book> --count 5` | Write 5 chapters consecutively |
-| `df audit <book> <chapter>` | Audit a specific chapter |
-| `df revise <book> <chapter>` | Revise a chapter |
-| `df status <book>` | View book status |
-| `df export <book>` | Export full book |
-| `df doctor` | Diagnose project configuration |
 
 ---
 
 ## Testing
 
 ```bash
+# Run all tests
 python run_tests.py
-# or
+
+# Or use pytest
 python -m pytest tests/ -v
 ```
 
 ---
 
-## Tech Specs
+## Related Documents
+
+- [Quick Start Guide](docs/QUICKSTART.md) — Finish your first creation in 5 minutes
+- [Ollama Configuration Guide](docs/OLLAMA_GUIDE.md) — Detailed local model setup
+- [Changelog](docs/CHANGELOG.md) — Version feature changes
+- [Project Status](docs/PROJECT_STATUS.md) — Development progress and roadmap
+- [Architecture Design Document](docs/ARCHITECTURE_DESIGN.md) — System architecture explanation
+- [Functional Design Document](docs/FUNCTIONAL_DESIGN.md) — Functional design description
+- [Methodology Documentation](docs/METHODS_DOCUMENTATION.md) — Writing methodology details
+
+---
+
+## Technical Specifications
 
 | Item | Specification |
-|------|---------------|
+|------|--------------|
 | Language | Python 3.11+ |
 | Web Framework | FastAPI |
 | LLM Interface | OpenAI SDK (compatible protocol) |
@@ -578,13 +530,27 @@ python -m pytest tests/ -v
 
 ---
 
-## License
+## Contributing
 
-MIT License
+We welcome any form of contribution! Please follow these steps:
+
+1. Fork this repository
+2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
+
+Please ensure your code follows project coding style and passes all tests.
 
 ---
 
-## Acknowledgements
+## License
+
+MIT License — see [LICENSE](LICENSE) file for details.
+
+---
+
+## Acknowledgments
 
 - [Dramatica Theory](https://dramatica.com/) — Narrative theory framework
 - [FastAPI](https://fastapi.tiangolo.com/) — High-performance web framework

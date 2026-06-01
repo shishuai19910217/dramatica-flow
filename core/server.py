@@ -1085,7 +1085,7 @@ def import_chapter_outlines(book_id: str, req: ImportChapterOutlinesReq):
             co["chapter_number"] = i + 1
 
         # 补缺字段
-        co.setdefault("title", f"第{co['chapter_number']}章")
+        co.setdefault("title", f"第{co['chapter_number']}章-情节推进")
         co.setdefault("summary", "")
         co.setdefault("sequence_id", "")
         co.setdefault("beats", [])
