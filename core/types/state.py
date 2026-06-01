@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Literal
 
-from .narrative import Character, Location, Faction, WorldRule, StoryEvent, NarrativeThread, TimelineEvent
+from .narrative import Character, Location, Faction, WorldRule, StoryEvent, NarrativeThread, TimelineEvent, HookType, HookStatus, Hook, EmotionalBeat
 
 
 # ── 真相文件 Key ──────────────────────────────────────────────────────────────
@@ -97,31 +97,11 @@ class EmotionalSnapshot:
     trigger: str
 
 
-# ── 伏笔与承诺 ────────────────────────────────────────────────────────────────
+# ── 伏笔与承诺（从 narrative.py 导入扩展版本）─────────────────────────────────
 
-class HookType(str, Enum):
-    FORESHADOW = "foreshadow"  # 伏笔
-    PROMISE    = "promise"     # 对读者的承诺（如三年之约）
-    MYSTERY    = "mystery"     # 悬念（未解之谜）
-    CONFLICT   = "conflict"    # 未解决冲突
-
-
-class HookStatus(str, Enum):
-    OPEN      = "open"
-    RESOLVED  = "resolved"
-    ABANDONED = "abandoned"
-
-
-@dataclass
-class Hook:
-    id: str
-    type: HookType
-    description: str
-    planted_in_chapter: int
-    # 预期回收章节范围 [earliest, latest]
-    expected_resolution_range: tuple[int, int]
-    status: HookStatus = HookStatus.OPEN
-    resolved_in_chapter: int | None = None
+# HookType、HookStatus、Hook 已从 narrative.py 导入，包含扩展字段：
+# - HookType: 新增 TWIST、CHARACTER_SECRET
+# - Hook: 新增 tension_level、storylines、reminder
 
 
 # ── 因果链（核心差异点，InkOS 缺失） ─────────────────────────────────────────
@@ -184,6 +164,8 @@ class WorldState:
     # ── 多线叙事扩展字段 ──
     threads: list[NarrativeThread]                = field(default_factory=list)
     timeline: list[TimelineEvent]                 = field(default_factory=list)
+    # ── 情绪模型扩展字段（钩子&灵魂黑夜） ──
+    emotional_beats: list[EmotionalBeat]          = field(default_factory=list)
 
     def get_relationship(self, a: str, b: str) -> RelationshipRecord | None:
         key = ":".join(sorted([a, b]))

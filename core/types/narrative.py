@@ -105,6 +105,60 @@ class EmotionalArcPoint:
     direction: Literal["ascending", "descending", "plateau"]
 
 
+# ── 钩子系统（增强版）───────────────────────────────────────────────────────
+
+class HookType(str, Enum):
+    FORESHADOW = "foreshadow"   # 暗线铺垫（如神秘玉佩）
+    PROMISE = "promise"         # 对读者的承诺（如三年之约）
+    MYSTERY = "mystery"         # 未解之谜（如密室消失的灵力）
+    CONFLICT = "conflict"       # 未解决矛盾（如两大势力暗战）
+    TWIST = "twist"             # 反转伏笔
+    CHARACTER_SECRET = "character_secret"  # 角色秘密
+
+
+class HookStatus(str, Enum):
+    OPEN = "open"               # 未回收
+    ADVANCED = "advanced"       # 已推进
+    RESOLVED = "resolved"       # 已回收
+    ABANDONED = "abandoned"     # 已放弃
+
+
+@dataclass
+class Hook:
+    id: str
+    type: HookType
+    description: str
+    planted_in_chapter: int
+    expected_resolution_range: tuple[int, int]  # 预期回收章节范围
+    status: HookStatus = HookStatus.OPEN
+    resolved_in_chapter: int | None = None
+    tension_level: int = 50      # 钩子强度（0-100，影响期待感指数）
+    storylines: list[str] = field(default_factory=list)  # 关联的故事线
+    reminder: str = ""           # 钩子提示（用于审计）
+
+
+# ── 情绪模型（灵魂黑夜等关键情绪点）────────────────────────────────────────
+
+class EmotionalBeatType(str, Enum):
+    HOOK = "hook"               # 钩子情绪点
+    SOUL_NIGHT = "soul_night"   # 灵魂黑夜（最低谷）
+    EPIPHANY = "epiphany"       # 顿悟时刻
+    CLIMAX = "climax"           # 高潮时刻
+    RESOLUTION = "resolution"   # 解决时刻
+
+
+@dataclass
+class EmotionalBeat:
+    chapter: int
+    beat_type: EmotionalBeatType
+    emotion: str
+    intensity: int  # 1-10（10为最强）
+    description: str
+    affected_characters: list[str] = field(default_factory=list)  # 情绪影响范围
+    delta_from_previous: int = 0  # 情绪变化幅度
+    is_payoff: bool = False  # 是否为爆点（用于节奏审计）
+
+
 @dataclass
 class Character:
     id: str
