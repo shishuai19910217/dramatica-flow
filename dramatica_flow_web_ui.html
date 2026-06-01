@@ -317,7 +317,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft Ya
     <h3>创建新书籍</h3>
     <div class="form-row">
       <div class="form-group"><label class="form-label">书名 *</label><input class="form-input" id="cb-title" placeholder="例：吞天魔帝"></div>
-      <div class="form-group"><label class="form-label">题材</label><select class="form-select" id="cb-genre"><option>玄幻</option><option>仙侠</option><option>都市</option><option>科幻</option><option>历史</option><option>言情</option><option>悬疑</option><option>游戏</option><option>无限流</option><option>其他</option></select></div>
+      <div class="form-group"><label class="form-label">题材</label><select class="form-select" id="cb-genre"><option>玄幻</option><option>仙侠</option><option>都市</option><option>科幻</option><option>科幻末世</option><option>历史</option><option>言情</option><option>悬疑</option><option>游戏</option><option>无限流</option><option>其他</option></select></div>
     </div>
     <div class="form-row">
       <div class="form-group"><label class="form-label">目标章数</label><input class="form-input" id="cb-chapters" type="number" value="90"></div>
@@ -333,6 +333,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft Ya
         <button type="button" class="tag-btn" onclick="document.getElementById('cb-style').value='细腻柔美，善用心理描写和环境烘托情感，对话含蓄有张力，注重人物情感细节'">都市言情</button>
         <button type="button" class="tag-btn" onclick="document.getElementById('cb-style').value='冷静克制，善用伏笔和细节暗示，叙述留白制造悬念，节奏紧凑但内敛'">悬疑推理</button>
         <button type="button" class="tag-btn" onclick="document.getElementById('cb-style').value='硬科幻质感，善用技术术语和科学原理，世界观宏大，描写偏理性冷静'">科幻未来</button>
+        <button type="button" class="tag-btn" onclick="document.getElementById('cb-style').value='废土苍凉感，善用环境描写营造末世氛围，如锈蚀金属、辐射尘暴、废弃都市。人物心理聚焦生存挣扎与人性抉择，科技描写侧重文明衰退后的残片。多用短句营造压抑紧张感，善用明暗对比表现希望与绝望的张力'">科幻末世</button>
         <button type="button" class="tag-btn" onclick="document.getElementById('cb-style').value='半文半白，考据扎实，权谋博弈描写细腻，对话符合时代特征，注重历史氛围'">历史架空</button>
         <button type="button" class="tag-btn" onclick="document.getElementById('cb-style').value='轻松诙谐，对话风趣，善用吐槽和反转，节奏轻快，常有意想不到的幽默感'">轻松搞笑</button>
         <button type="button" class="tag-btn" onclick="document.getElementById('cb-style').value='文笔沉稳厚重，善用象征隐喻，氛围压抑沉郁，节奏缓慢但充满张力'">暗黑复仇</button>
@@ -351,7 +352,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft Ya
     <h3>编辑书籍设置</h3>
     <div class="form-row">
       <div class="form-group"><label class="form-label">书名 *</label><input class="form-input" id="eb-title" placeholder="例：吞天魔帝"></div>
-      <div class="form-group"><label class="form-label">题材</label><select class="form-select" id="eb-genre"><option>玄幻</option><option>仙侠</option><option>都市</option><option>科幻</option><option>历史</option><option>言情</option><option>悬疑</option><option>游戏</option><option>无限流</option><option>其他</option></select></div>
+      <div class="form-group"><label class="form-label">题材</label><select class="form-select" id="eb-genre"><option>玄幻</option><option>仙侠</option><option>都市</option><option>科幻</option><option>科幻末世</option><option>历史</option><option>言情</option><option>悬疑</option><option>游戏</option><option>无限流</option><option>其他</option></select></div>
     </div>
     <div class="form-row">
       <div class="form-group"><label class="form-label">目标章数</label><input class="form-input" id="eb-chapters" type="number" value="90"></div>
@@ -410,7 +411,7 @@ function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;'
 const STYLES = {
   'hot-blood': '热血升级', 'cultivation': '仙侠修真', 'urban-business': '都市商战',
   'urban-romance': '都市言情', 'mystery': '悬疑推理', 'scifi': '科幻未来',
-  'historical': '历史架空', 'humor': '轻松搞笑', 'dark-revenge': '暗黑复仇',
+  'scifi-apocalypse': '科幻末世', 'historical': '历史架空', 'humor': '轻松搞笑', 'dark-revenge': '暗黑复仇',
   'literary': '文艺清新', 'farming': '种田日常', 'infinite': '无限流',
   'fast-paced': '快节奏爽文', 'slow-burn': '慢热沉浸'
 };
@@ -1066,6 +1067,7 @@ function loadStep3Extract() {
             <option value="仙侠">仙侠</option>
             <option value="都市">都市</option>
             <option value="科幻">科幻</option>
+            <option value="科幻末世">科幻末世</option>
             <option value="历史">历史</option>
             <option value="悬疑">悬疑</option>
             <option value="言情">言情</option>
@@ -2785,7 +2787,7 @@ function showImportNovelModal() {
           <select class="form-select" id="import-genre">
             <option value="玄幻">玄幻</option><option value="仙侠">仙侠</option>
             <option value="都市">都市</option><option value="科幻">科幻</option>
-            <option value="历史">历史</option><option value="言情">言情</option>
+            <option value="科幻末世">科幻末世</option><option value="历史">历史</option><option value="言情">言情</option>
             <option value="悬疑">悬疑</option><option value="奇幻">奇幻</option>
             <option value="其他">其他</option>
           </select>
