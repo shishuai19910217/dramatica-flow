@@ -258,6 +258,9 @@ class NarrativeEngine:
                 item["summary"] = item.get("title", "章节摘要")
             if "title" not in item:
                 item["title"] = f"第{item.get('chapter_number', '?')}章"
+            # 确保 sequence_id 存在
+            if "sequence_id" not in item or not item["sequence_id"]:
+                item["sequence_id"] = sequence.id
             # 修正序列级的 dramatic_function
             if item.get("dramatic_function") and item["dramatic_function"] not in _VALID_DF:
                 item["dramatic_function"] = _DF_ALIASES.get(item["dramatic_function"].lower().strip(), "transition")

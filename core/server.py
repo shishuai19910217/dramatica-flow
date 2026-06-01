@@ -1347,9 +1347,12 @@ async def continue_writing(book_id: str, req: ContinueWritingReq):
     except Exception as e:
         raise HTTPException(500, f"续写失败：{e}")
 
-    # 修正 chapter_number、beats 并追加
+    # 修正 chapter_number、beats、sequence_id 并追加
     for i, co in enumerate(new_cos):
         co["chapter_number"] = start_ch + i
+        # 确保 sequence_id 存在（续写模式下生成新的序列ID）
+        if "sequence_id" not in co or not co["sequence_id"]:
+            co["sequence_id"] = f"seq_{start_ch + i}"
         # 修正 dramatic_function 和缺失的 beat id
         if co.get("dramatic_function"):
             co["dramatic_function"] = _DF_MAP.get(co["dramatic_function"], co["dramatic_function"])

@@ -272,11 +272,14 @@ def write(
         console.print(f"  ✓ 章纲：{len(all_outlines)} 章")
     else:
         raw = json.loads(chapter_outlines_path.read_text(encoding="utf-8"))
-        # 修复 AI 输出的非法 dramatic_function 和缺失的 beat id
+        # 修复 AI 输出的非法 dramatic_function、缺失的 beat id 和 sequence_id
         from core.llm import _fix_df
         for r in raw:
             if r.get("dramatic_function"):
                 r["dramatic_function"] = _fix_df(r["dramatic_function"])
+            # 确保 sequence_id 存在
+            if "sequence_id" not in r or not r["sequence_id"]:
+                r["sequence_id"] = f"seq_{r.get('chapter_number', 'unknown')}"
             for bi, beat in enumerate(r.get("beats", [])):
                 if not beat.get("id"):
                     beat["id"] = f"beat_{r.get('chapter_number', bi)}_{bi+1}"
