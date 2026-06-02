@@ -382,7 +382,11 @@ def revise(
 ):
     """手动修订指定章节"""
     from core.state import StateManager
-    from core.agents import AuditorAgent, ReviserAgent, ArchitectBlueprint, PreWriteChecklist, PostWriteSettlement
+    from core.agents import (
+        AuditorAgent, ReviserAgent, ArchitectBlueprint, 
+        PreWriteChecklist, PostWriteSettlement, AuditIssue
+    )
+    from core.validators import PostWriteValidator
     from core.types.state import TruthFileKey
 
     sm = StateManager(project, book_id)
@@ -390,21 +394,63 @@ def revise(
     if not content:
         console.print(f"[red]✗ 第 {chapter} 章不存在[/red]"); raise typer.Exit(1)
 
+    # 从章纲中获取目标字数
+    target_words = 5000  # 默认值
+    try:
+        config = sm.read_config()
+        if hasattr(config, "outlines_path"):
+            import json
+            from pathlib import Path
+            outlines_file = Path(project) / config.outlines_path
+            if outlines_file.exists():
+                outlines_data = json.loads(outlines_file.read_text(encoding="utf-8"))
+                for outline in outlines_data:
+                    if outline.get("chapter_number") == chapter:
+                        target_words = outline.get("target_words", 5000)
+                        break
+    except Exception:
+        pass  # 出错时使用默认值
+
     blueprint = ArchitectBlueprint(
         core_conflict="", hooks_to_advance=[], hooks_to_plant=[],
         emotional_journey={}, chapter_end_hook="", pace_notes="",
         pre_write_checklist=PreWriteChecklist([], [], [], [], ""),
     )
     truth_ctx = sm.read_truth_bundle([TruthFileKey.CURRENT_STATE, TruthFileKey.PENDING_HOOKS])
-    report = AuditorAgent(_llm(temperature=0.0, model_env="AUDITOR_MODEL")).audit_chapter(
+    
+    # 同时调用审计器和验证器
+    audit_report = AuditorAgent(_llm(temperature=0.0, model_env="AUDITOR_MODEL")).audit_chapter(
         content, chapter, blueprint, truth_ctx, PostWriteSettlement([], [], [], [], []),
     )
+    
+    # 调用写后验证器
+    config = sm.read_config()
+    validator = PostWriteValidator(
+        custom_forbidden_words=getattr(config, "custom_forbidden_words", [])
+    )
+    val_result = validator.validate(content, target_words=target_words)
+    
+    # 合并验证器问题到审计问题列表
+    all_issues = audit_report.issues.copy()
+    for val_issue in val_result.issues:
+        # 转换验证问题为审计问题格式
+        severity = "critical" if val_issue.severity == "error" else "warning"
+        audit_issue = AuditIssue(
+            dimension="写后验证",
+            severity=severity,
+            description=f"[{val_issue.rule}] {val_issue.description}",
+            location=val_issue.excerpt or "",
+            suggestion=""
+        )
+        all_issues.append(audit_issue)
+    
+    # 检查是否需要修订
+    has_issues = any(i.severity in ["critical", "warning"] for i in all_issues)
+    if not has_issues and mode == "spot-fix":
+        console.print("[green]✓ 审计和验证通过，无需修订[/green]"); return
 
-    if report.passed and mode == "spot-fix":
-        console.print("[green]✓ 审计通过，无需修订[/green]"); return
-
-    console.print(f"发现 {report.critical_count} critical，修订模式：{mode}")
-    result = ReviserAgent(_llm()).revise(content, report.issues, mode=mode)  # type: ignore
+    console.print(f"发现 {audit_report.critical_count} critical，{len(val_result.issues)} 验证问题，修订模式：{mode}")
+    result = ReviserAgent(_llm()).revise(content, all_issues, mode=mode)  # type: ignore
     sm.save_final(chapter, result.content)
     console.print(f"[green]✓ 修订完成，改动 {len(result.change_log)} 处[/green]")
 

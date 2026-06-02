@@ -167,6 +167,65 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft Ya
 .severity-warning { background: var(--yellow-bg); color: var(--yellow); }
 .audit-issue:hover { background: var(--bg-dark); }
 
+/* ── 质量评分面板 ─────────────────────────────────────────────────────────── */
+.quality-panel { padding: 12px; }
+.quality-score-card { padding: 16px; background: var(--bg-dark); border-radius: var(--radius); margin-bottom: 12px; }
+.quality-scores { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+.score-item { text-align: center; }
+.score-ring { width: 60px; height: 60px; border-radius: 50%; background: conic-gradient(var(--color, var(--green)) calc(var(--score) * 3.6deg), var(--border) calc(var(--score) * 3.6deg)); display: flex; align-items: center; justify-content: center; margin: 0 auto 8px; position: relative; }
+.score-ring::before { content: ''; position: absolute; width: 48px; height: 48px; background: var(--bg-dark); border-radius: 50%; }
+.score-value { position: relative; font-size: 14px; font-weight: 600; color: var(--text); }
+.score-label { font-size: 11px; color: var(--text3); }
+.overall-score { text-align: center; padding-top: 12px; border-top: 1px solid var(--border); }
+.overall-ring { width: 80px; height: 80px; margin: 0 auto 8px; background: conic-gradient(var(--purple) calc(var(--score) * 3.6deg), var(--border) calc(var(--score) * 3.6deg)); border-radius: 50%; display: flex; align-items: center; justify-content: center; position: relative; }
+.overall-ring::before { content: ''; position: absolute; width: 64px; height: 64px; background: var(--bg-dark); border-radius: 50%; }
+.overall-value { position: relative; font-size: 20px; font-weight: 700; color: var(--purple); }
+.overall-label { font-size: 12px; color: var(--text2); font-weight: 600; }
+.quality-trend-chart { padding: 16px; background: var(--bg-dark); border-radius: var(--radius); }
+.trend-chart-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.trend-chart-title { font-size: 13px; font-weight: 600; color: var(--text); }
+.trend-legend { display: flex; gap: 16px; font-size: 11px; }
+.legend-item { display: flex; align-items: center; gap: 4px; }
+.legend-color { width: 12px; height: 2px; border-radius: 1px; }
+.trend-chart-body { height: 200px; position: relative; }
+.trend-grid { position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; justify-content: space-between; }
+.trend-grid-line { height: 1px; background: var(--border); }
+.trend-lines { position: absolute; top: 0; left: 0; right: 0; bottom: 0; }
+.trend-line { fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.trend-point { r: 4; fill: var(--bg-dark); stroke-width: 2; }
+
+/* ── 全书质量概览 ─────────────────────────────────────────────────────────── */
+.book-quality-overview { padding: 12px; background: var(--bg-dark); border-radius: var(--radius); border-left: 3px solid var(--purple); min-width: 280px; }
+.book-overall-section { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; }
+.book-overall-score { text-align: center; }
+.overall-ring-large { width: 56px; height: 56px; margin: 0 auto 4px; background: conic-gradient(var(--purple) calc(var(--score) * 3.6deg), var(--border) calc(var(--score) * 3.6deg)); border-radius: 50%; display: flex; align-items: center; justify-content: center; position: relative; }
+.overall-ring-large::before { content: ''; position: absolute; width: 44px; height: 44px; background: var(--bg-dark); border-radius: 50%; }
+.overall-value-large { position: relative; font-size: 16px; font-weight: 700; color: var(--purple); }
+.overall-label-large { font-size: 10px; color: var(--text3); display: block; }
+.book-stats { display: flex; gap: 12px; flex: 1; }
+.stat-item { text-align: center; flex: 1; }
+.stat-value { font-size: 16px; font-weight: 700; color: var(--text); display: block; }
+.stat-label { font-size: 10px; color: var(--text3); }
+
+.dimensions-section { margin-bottom: 12px; }
+.section-title { font-size: 11px; font-weight: 600; color: var(--text2); margin-bottom: 8px; display: block; }
+.dimension-bars { display: flex; flex-direction: column; gap: 6px; }
+.dim-bar-item { display: flex; align-items: center; gap: 8px; }
+.dim-bar-header { display: flex; justify-content: space-between; width: 100%; }
+.dim-name { font-size: 10px; color: var(--text3); }
+.dim-score-value { font-size: 10px; font-weight: 600; color: var(--text2); }
+.dim-bar-container { flex: 1; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+.dim-bar { height: 100%; border-radius: 3px; transition: width .3s; }
+
+.ranking-section { margin-bottom: 12px; }
+.chapter-list { display: flex; flex-direction: column; gap: 4px; }
+.chapter-item { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-radius: 4px; cursor: pointer; transition: background .15s; }
+.chapter-item:hover { background: var(--bg); }
+.chapter-item.problem { background: rgba(239,68,68,.1); }
+.chapter-rank { width: 16px; height: 16px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: var(--text3); background: var(--bg); border-radius: 3px; }
+.chapter-title { flex: 1; font-size: 11px; color: var(--text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chapter-score { font-size: 11px; font-weight: 600; }
+
 /* ── Badge ─────────────────────────────────────────────────────────────────── */
 .badge { font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
 .badge-inciting { background: var(--yellow-bg); color: var(--yellow); }
@@ -379,7 +438,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft Ya
 </div>
 
 <script>
-const API = 'http://localhost:8766/api';
+const API = 'http://localhost:8000/api';
 let currentBook = null, bookData = null, allBooks = [];
 let currentStep = 2, maxUnlockedStep = 2;
 let apiConfigured = false, apiProvider = 'deepseek';
@@ -471,7 +530,10 @@ function updateStepsBar() {
 
 // ── 书籍管理 ───────────────────────────────────────────────────────────────
 
-async function loadBooks() { allBooks = await api('/books'); updateBookSelector(); }
+async function loadBooks() { 
+  allBooks = await api('/books'); 
+  updateBookSelector(); 
+}
 
 function updateBookSelector() {
   const sel = document.getElementById('book-select');
@@ -481,7 +543,13 @@ function updateBookSelector() {
 }
 
 function selectBook(id) {
-  if (!id) { currentBook = null; bookData = null; return; }
+  // 先清空旧数据，防止数据混淆
+  currentBook = null; 
+  bookData = null; 
+  
+  if (!id) { 
+    return; 
+  }
   currentBook = allBooks.find(b => b.id === id);
   if (currentBook) {
     const s = currentBook.stage || 1;
@@ -600,8 +668,19 @@ async function saveEditBookSettings() {
 }
 
 async function loadBookData() {
-  if (!currentBook) return;
+  if (!currentBook) {
+    bookData = null;
+    chapterOutlinesCache = null;
+    return;
+  }
+  
   try {
+    toast(`正在加载《${currentBook.title}》的数据...`, 'loading');
+    
+    // 先清空旧的数据
+    bookData = null;
+    chapterOutlinesCache = null;
+    
     const [book, chapters, causal, emotions, hooks, relations] = await Promise.all([
       api(`/books/${currentBook.id}`), api(`/books/${currentBook.id}/chapters`),
       api(`/books/${currentBook.id}/causal-chain`), api(`/books/${currentBook.id}/emotional-arcs`),
@@ -612,7 +691,14 @@ async function loadBookData() {
     try { chOutlines = await api(`/books/${currentBook.id}/chapter-outlines`); } catch {}
     chapterOutlinesCache = chOutlines;
     bookData = { book, chapters, causal, emotions, hooks, relations, outline, chapterOutlines: chOutlines };
-  } catch (e) { toast('加载数据失败: ' + e.message, false); }
+    
+    toast(`《${currentBook.title}》加载成功`, true);
+  } catch (e) { 
+    // 确保出错时也清空数据
+    bookData = null;
+    chapterOutlinesCache = null;
+    toast('加载数据失败: ' + e.message, false); 
+  }
 }
 
 // ── Step 1: API 配置 ──────────────────────────────────────────────────────
@@ -751,32 +837,67 @@ async function testLLMConnection(source) {
 
 // ── Step 2: 创建书籍 ──────────────────────────────────────────────────────
 
-function loadStep2() {
+async function refreshBookQuality() {
+  toast('正在检查全书质量...', 'loading');
+  await loadStep2();
+  toast('质量检查完成', true);
+}
+
+async function loadStep2() {
   const p = document.getElementById('step2-panel');
   if (!allBooks.length) {
     p.innerHTML = `<div class="guide-card"><h2>创建你的小说</h2><p>还没有书籍，点击下方按钮开始。</p><button class="btn btn-primary btn-lg" onclick="showCreateBookModal()">+ 创建第一本书</button></div>`;
     return;
   }
+  
+  // 并行加载所有书籍的质量概览
+  const qualityPromises = allBooks.map(async b => {
+    try {
+      const overview = await api(`/books/${b.id}/quality/overview`);
+      return { bookId: b.id, overview };
+    } catch {
+      return { bookId: b.id, overview: null };
+    }
+  });
+  const qualityResults = await Promise.all(qualityPromises);
+  const qualityMap = {};
+  qualityResults.forEach(r => { qualityMap[r.bookId] = r.overview; });
+  
   p.innerHTML = `
     <div class="toolbar" style="justify-content:center">
       <button class="btn btn-primary" onclick="showCreateBookModal()">+ 创建新书</button>
       <button class="btn" onclick="document.getElementById('import-sc-file').click()" title="从 StoryCanvas .storycanvas 文件导入项目">&#128230; 导入项目</button>
       <input type="file" id="import-sc-file" accept=".storycanvas,.zip" style="display:none" onchange="importStoryCanvas(this)">
       <button class="btn btn-success" onclick="batchAutoGenerateThreads()" title="为所有已有章节大纲的书籍自动生成线程">&#9889; 批量生成线程</button>
+      <button class="btn btn-info" onclick="refreshBookQuality()" title="重新检查所有书籍的质量评分">🔄 检查全书质量</button>
     </div>
-    <div style="max-width:600px;margin:0 auto">
-      ${allBooks.map(b => `
-        <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px;cursor:pointer;background:var(--surface);transition:all .15s"
-             onclick="selectBook('${b.id}');goStep(3)">
-          <div style="width:4px;height:36px;border-radius:2px;background:${currentBook&&currentBook.id===b.id?'var(--blue)':'var(--border)'}"></div>
-          <div style="flex:1">
-            <div style="font-size:13px;font-weight:500">${esc(b.title)}</div>
-            <div style="font-size:11px;color:var(--text3)">${esc(b.genre)} · ${b.finals||0}/${b.target_chapters}章</div>
+    <div style="max-width:700px;margin:0 auto">
+      ${allBooks.map(b => {
+        const quality = qualityMap[b.id];
+        const score = quality ? quality.book_overall_score : 0;
+        const scoreColor = score < 40 ? 'var(--red)' : score < 60 ? 'var(--yellow)' : score < 80 ? 'var(--green)' : 'var(--purple)';
+        return `
+          <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px;cursor:pointer;background:var(--surface);transition:all .15s"
+               onclick="selectBookAndLoad('${b.id}');goStep(3)">
+            <div style="width:4px;height:36px;border-radius:2px;background:${currentBook&&currentBook.id===b.id?'var(--blue)':'var(--border)'}"></div>
+            <div style="flex:1">
+              <div style="font-size:13px;font-weight:500">${esc(b.title)}</div>
+              <div style="font-size:11px;color:var(--text3)">${esc(b.genre)} · ${b.finals||0}/${b.target_chapters}章</div>
+            </div>
+            ${quality ? `
+              <div style="text-align:center;margin-right:8px">
+                <div style="width:36px;height:36px;border-radius:50%;background:conic-gradient(${scoreColor} calc(${score} * 3.6deg), var(--border) calc(${score} * 3.6deg));display:flex;align-items:center;justify-content:center;position:relative">
+                  <div style="position:absolute;width:28px;height:28px;border-radius:50%;background:var(--surface)"></div>
+                  <span style="position:relative;font-size:11px;font-weight:600;color:${scoreColor}">${score}</span>
+                </div>
+                <div style="font-size:9px;color:var(--text3);margin-top:2px">质量评分</div>
+              </div>
+            ` : ''}
+            <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteBook('${b.id}')">删除</button>
+            <button class="btn btn-sm" onclick="event.stopPropagation();editBookSettings('${b.id}')" title="修改章节数等设置">&#9881;</button>
           </div>
-          <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteBook('${b.id}')">删除</button>
-          <button class="btn btn-sm" onclick="event.stopPropagation();editBookSettings('${b.id}')" title="修改章节数等设置">&#9881;</button>
-        </div>
-      `).join('')}
+        `;
+      }).join('')}
     </div>`;
 }
 
@@ -2248,17 +2369,130 @@ async function saveChOutlineInline(idx) {
 async function aiGenChapterOutlines() {
   if (!currentBook) return;
   const btn = event?.target?.closest('button');
-  if (btn) { btn.disabled = true; btn._origText = btn.textContent; btn.textContent = '生成中，请稍候...'; }
-  toast('AI 正在生成章节大纲，请耐心等待...', 'loading');
+  if (btn) { btn.disabled = true; btn._origText = btn.textContent; btn.textContent = '生成中...'; }
+  
+  // 创建进度显示弹窗
+  const progressModal = document.createElement('div');
+  progressModal.style.cssText = `
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    background: var(--bg1); border: 1px solid var(--border); border-radius: 12px;
+    padding: 24px; min-width: 400px; z-index: 1000; box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+  `;
+  progressModal.innerHTML = `
+    <h3 style="margin:0 0 16px 0;color:var(--text1)">AI 生成章节大纲</h3>
+    <div id="progress-info" style="color:var(--text2);margin-bottom:16px">准备开始...</div>
+    <div id="progress-list" style="max-height:200px;overflow-y:auto;margin-bottom:16px"></div>
+    <div id="progress-bar-container" style="height:8px;background:var(--bg3);border-radius:4px;overflow:hidden">
+      <div id="progress-bar" style="height:100%;background:var(--primary);width:0%"></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-top:8px">
+      <span id="progress-text" style="color:var(--text2);font-size:12px">0/0</span>
+      <button id="cancel-btn" class="btn btn-sm" style="display:none" onclick="cancelOutlineGeneration()">取消</button>
+    </div>
+  `;
+  document.body.appendChild(progressModal);
+  
+  let eventSource = null;
+  let totalChapters = 0;
+  let completedChapters = 0;
+  let receivedOutlines = [];
+  
+  window.cancelOutlineGeneration = function() {
+    if (eventSource) {
+      eventSource.close();
+    }
+    progressModal.remove();
+    if (btn) { btn.disabled = false; btn.textContent = btn._origText || 'AI 生成章节大纲'; }
+    toast('已取消生成', false);
+  };
+  
   try {
-    const res = await api(`/books/${currentBook.id}/ai-generate/chapter-outlines`, { method: 'POST' });
-    if (!res.ok) { toast(res.detail || '生成失败', false); return; }
-    chapterOutlinesCache = res.outlines;
-    bookData.chapterOutlines = res.outlines;
-    toast(`${res.count} 章大纲已生成`, true);
-    loadStep4();
-  } catch (e) { toast('生成失败: ' + e.message, false); }
-  finally { if (btn) { btn.disabled = false; btn.textContent = btn._origText || 'AI 生成章节大纲'; } }
+    eventSource = new EventSource(`/api/books/${currentBook.id}/ai-generate/chapter-outlines`);
+    
+    eventSource.onmessage = function(event) {
+      try {
+        const data = JSON.parse(event.data);
+        
+        if (data.status === 'started') {
+          document.getElementById('progress-info').textContent = data.message;
+          document.getElementById('cancel-btn').style.display = 'block';
+        } else if (data.status === 'progress') {
+          completedChapters = data.completed_chapters;
+          receivedOutlines.push({ chapter_number: data.chapter_number, title: data.chapter_title });
+          
+          const progressList = document.getElementById('progress-list');
+          const item = document.createElement('div');
+          item.style.cssText = 'padding:4px 0;color:var(--text2);border-bottom:1px solid var(--border3)';
+          item.textContent = `✓ 第 ${data.chapter_number} 章 - ${data.chapter_title}`;
+          progressList.appendChild(item);
+          progressList.scrollTop = progressList.scrollHeight;
+          
+          // 估算总章节数（基于序列数）
+          if (data.total_sequences) {
+            totalChapters = data.total_sequences * 3; // 假设每序列约3章
+          }
+          totalChapters = Math.max(totalChapters, completedChapters);
+          
+          const progress = totalChapters > 0 ? (completedChapters / totalChapters) * 100 : 0;
+          document.getElementById('progress-bar').style.width = `${progress}%`;
+          document.getElementById('progress-text').textContent = `${completedChapters}/${totalChapters}`;
+          document.getElementById('progress-info').textContent = data.message;
+        } else if (data.status === 'completed') {
+          chapterOutlinesCache = data.outlines;
+          bookData.chapterOutlines = data.outlines;
+          document.getElementById('progress-info').textContent = `🎉 ${data.count} 章大纲已生成完成`;
+          document.getElementById('progress-bar').style.width = '100%';
+          document.getElementById('progress-text').textContent = `${data.count}/${data.count}`;
+          
+          setTimeout(() => {
+            progressModal.remove();
+            toast(`${data.count} 章大纲已生成`, true);
+            loadStep4();
+          }, 1500);
+          
+          if (eventSource) {
+            eventSource.close();
+            eventSource = null;
+          }
+        } else if (data.status === 'error') {
+          document.getElementById('progress-info').textContent = `❌ 生成失败: ${data.error}`;
+          toast('生成失败: ' + data.error, false);
+          
+          setTimeout(() => {
+            progressModal.remove();
+          }, 2000);
+          
+          if (eventSource) {
+            eventSource.close();
+            eventSource = null;
+          }
+        }
+      } catch (e) {
+        console.error('解析SSE消息失败:', e);
+      }
+    };
+    
+    eventSource.onerror = function(error) {
+      console.error('SSE连接错误:', error);
+      document.getElementById('progress-info').textContent = '连接中断，请重试';
+      toast('生成过程中连接中断', false);
+      
+      setTimeout(() => {
+        progressModal.remove();
+      }, 2000);
+      
+      if (eventSource) {
+        eventSource.close();
+        eventSource = null;
+      }
+    };
+    
+  } catch (e) {
+    console.error('生成大纲失败:', e);
+    toast('生成失败: ' + e.message, false);
+    progressModal.remove();
+    if (btn) { btn.disabled = false; btn.textContent = btn._origText || 'AI 生成章节大纲'; }
+  }
 }
 
 function deleteChOutline(idx) {
@@ -2895,6 +3129,12 @@ function loadStep6() {
             <div class="mode-tab active" id="tab-audit" onclick="switchAuditTab('audit',this)">审计结果</div>
             <div class="mode-tab" id="tab-story" onclick="switchAuditTab('story',this)">故事数据</div>
             <div class="mode-tab" id="tab-edit" onclick="switchAuditTab('edit',this)">正文编辑</div>
+            <div class="mode-tab" id="tab-quality" onclick="switchAuditTab('quality',this)">质量监控</div>
+          </div>
+          <!-- 质量监控面板 -->
+          <div class="card" id="quality-panel" style="display:none">
+            <div class="card-header">📊 质量监控</div>
+            <div id="quality-content"><div class="loading">加载中...</div></div>
           </div>
         </div>
         <!-- 故事数据面板 -->
@@ -2930,10 +3170,12 @@ function switchAuditTab(tab, el) {
   el.classList.add('active');
   document.getElementById('story-data-panel').style.display = tab === 'story' ? '' : 'none';
   document.getElementById('edit-panel').style.display = tab === 'edit' ? '' : 'none';
+  document.getElementById('quality-panel').style.display = tab === 'quality' ? '' : 'none';
   document.getElementById('audit-result-panel').style.display = (tab === 'audit') ? '' : 'none';
   document.getElementById('chapter-text-panel').style.display = (tab === 'edit') ? '' : 'none';
   if (tab === 'story') loadStoryData();
   if (tab === 'edit') loadAuditChapterText();
+  if (tab === 'quality') loadQualityPanel();
 }
 
 async function loadAuditChapterText() {
@@ -3012,6 +3254,433 @@ function applyRewrite() {
   body.value = body.value.substring(0, idx) + window._rewriteData.rewritten + body.value.substring(idx + window._rewriteData.selected.length);
   toast('已应用修改，请点击"保存正文"确认', true);
   document.getElementById('rewrite-result').innerHTML = '';
+}
+
+async function loadQualityPanel() {
+  const panel = document.getElementById('quality-content');
+  if (!panel) return;
+  
+  const ch = parseInt(document.getElementById('audit-chapter')?.value);
+  if (!ch) {
+    panel.innerHTML = '<div class="empty">请先选择章节</div>';
+    return;
+  }
+  
+  panel.innerHTML = '<div class="loading">加载质量数据...</div>';
+  
+  try {
+    const [report, trend] = await Promise.all([
+      api(`/books/${currentBook.id}/quality/report/${ch}`),
+      api(`/books/${currentBook.id}/quality/trend`)
+    ]);
+    
+    panel.innerHTML = renderQualityPanel(report, trend);
+  } catch (e) {
+    panel.innerHTML = `<div class="error">加载失败: ${e.message}</div>`;
+  }
+}
+
+function getScoreColor(score) {
+  if (score < 40) return 'var(--red)';
+  if (score < 60) return 'var(--yellow)';
+  if (score < 80) return 'var(--green)';
+  return 'var(--purple)';
+}
+
+function getScoreLevel(score) {
+  if (score < 40) return '严重不合格';
+  if (score < 60) return '需要优化';
+  if (score < 80) return '合格';
+  return '优秀';
+}
+
+function renderQualityPanel(report, trend) {
+  const { chapter_number, story_score, character_score, language_score, experience_score, overall_score } = report;
+  const chapters = trend?.chapters || [];
+  const scoreColor = getScoreColor(overall_score);
+  const scoreLevel = getScoreLevel(overall_score);
+  
+  // 生成趋势图表SVG
+  const trendSvg = renderTrendChart(chapters);
+  
+  return `
+    <div class="quality-panel">
+      <div class="quality-score-card" style="border-left: 4px solid ${scoreColor}">
+        <div class="card-header">📊 第${chapter_number}章质量评分</div>
+        <div class="quality-scores">
+          <div class="score-item">
+            <div class="score-ring" style="--score: ${story_score || 0}; --color: ${getScoreColor(story_score)}">
+              <span class="score-value">${story_score || 0}</span>
+            </div>
+            <span class="score-label">故事层面</span>
+          </div>
+          <div class="score-item">
+            <div class="score-ring" style="--score: ${character_score || 0}; --color: ${getScoreColor(character_score)}">
+              <span class="score-value">${character_score || 0}</span>
+            </div>
+            <span class="score-label">人物层面</span>
+          </div>
+          <div class="score-item">
+            <div class="score-ring" style="--score: ${language_score || 0}; --color: ${getScoreColor(language_score)}">
+              <span class="score-value">${language_score || 0}</span>
+            </div>
+            <span class="score-label">语言层面</span>
+          </div>
+          <div class="score-item">
+            <div class="score-ring" style="--score: ${experience_score || 0}; --color: ${getScoreColor(experience_score)}">
+              <span class="score-value">${experience_score || 0}</span>
+            </div>
+            <span class="score-label">阅读体验</span>
+          </div>
+        </div>
+        <div class="overall-score">
+          <div class="overall-ring" style="--score: ${overall_score || 0}">
+            <span class="overall-value">${overall_score || 0}</span>
+          </div>
+          <span class="overall-label">综合评分 - ${scoreLevel}</span>
+        </div>
+        <!-- 行动按钮 -->
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <button class="btn btn-primary btn-sm" onclick="runQualityRevise(${chapter_number})">
+            ✨ 一键优化
+          </button>
+          <button class="btn btn-sm" onclick="showQualitySuggestions(${chapter_number})">
+            💡 查看建议
+          </button>
+          <button class="btn btn-warning btn-sm" onclick="runDeepCheck(${chapter_number})" id="deep-check-btn-${chapter_number}">
+            🧠 深度检查
+          </button>
+        </div>
+      </div>
+      
+      <!-- 优化建议面板 -->
+      <div id="quality-suggestions-panel" style="display:none;margin-top:12px">
+        <div class="card">
+          <div class="card-header">💡 优化建议</div>
+          <div id="quality-suggestions-content"><div class="loading">加载中...</div></div>
+        </div>
+      </div>
+      
+      <div class="quality-trend-chart">
+        <div class="trend-chart-header">
+          <span class="trend-chart-title">📈 全书质量趋势</span>
+          <div class="trend-legend">
+            <div class="legend-item"><span class="legend-color" style="background:var(--green)"></span><span style="color:var(--text3)">故事</span></div>
+            <div class="legend-item"><span class="legend-color" style="background:var(--blue)"></span><span style="color:var(--text3)">人物</span></div>
+            <div class="legend-item"><span class="legend-color" style="background:var(--orange)"></span><span style="color:var(--text3)">语言</span></div>
+            <div class="legend-item"><span class="legend-color" style="background:var(--purple)"></span><span style="color:var(--text3)">体验</span></div>
+          </div>
+        </div>
+        <div class="trend-chart-body">
+          ${trendSvg}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function runQualityRevise(chapter) {
+  if (!currentBook) {
+    toast('请先选择一本书籍', false);
+    return;
+  }
+  
+  toast('正在进行深度分析和质量优化...', 'loading');
+  
+  try {
+    const res = await api(`/books/${currentBook.id}/quality/check-and-revise/${chapter}`, {
+      method: 'POST'
+    });
+    
+    if (res.revised) {
+      // 构建详细的优化结果提示
+      let detailMsg = `优化完成！评分从 ${res.original_score} 提升至 ${res.new_score}`;
+      
+      // 如果有深度检查结果，显示各维度的改进
+      if (res.original_dimensions && res.new_dimensions) {
+        detailMsg += '\n\n【各维度改进】';
+        const dimNames = {
+          'story_score': '故事',
+          'character_score': '人物', 
+          'language_score': '语言',
+          'experience_score': '体验'
+        };
+        
+        for (let key in dimNames) {
+          const oldScore = res.original_dimensions[key];
+          const newScore = res.new_dimensions[key];
+          if (newScore > oldScore) {
+            detailMsg += `\n${dimNames[key]}: ${oldScore} → ${newScore} (+${newScore - oldScore})`;
+          }
+        }
+      }
+      
+      // 如果有深度检查结果，显示在面板中
+      if (res.deep_check) {
+        // 在优化建议面板中显示深度分析结果
+        showDeepCheckResult(res.deep_check);
+      }
+      
+      toast(detailMsg, true);
+      await loadQualityPanel();
+      await loadAuditChapterText();
+    } else {
+      toast(`质量达标（${res.score}分），无需优化`, true);
+    }
+  } catch (e) {
+    let errorMsg = '优化失败';
+    if (e && e.message) {
+      errorMsg += ': ' + e.message;
+    } else if (e && typeof e === 'string') {
+      errorMsg += ': ' + e;
+    } else {
+      errorMsg += ': 未知错误';
+    }
+    toast(errorMsg, false);
+  }
+}
+
+function showDeepCheckResult(deepCheck) {
+  const panel = document.getElementById('quality-suggestions-panel');
+  const content = document.getElementById('quality-suggestions-content');
+  
+  if (!panel || !content) return;
+  
+  panel.style.display = '';
+  
+  let html = '<div style="padding:12px">';
+  html += '<div style="font-weight:600;margin-bottom:12px;color:var(--primary)">🧠 深度分析结果</div>';
+  
+  const dimensions = [
+    ['plot_logic', '📖 故事逻辑', 'score', 'comment'],
+    ['character_consistency', '🎭 人物塑造', 'score', 'comment'],
+    ['language_style', '✍️ 语言风格', 'score', 'comment'],
+    ['theme_fit', '🎯 主题契合', 'score', 'comment'],
+    ['creativity', '💡 创意新颖', 'score', 'comment']
+  ];
+  
+  for (let [key, label, scoreKey, commentKey] of dimensions) {
+    if (deepCheck[key]) {
+      const score = deepCheck[key][scoreKey];
+      const comment = deepCheck[key][commentKey];
+      html += `
+        <div style="margin-bottom:12px;padding:10px;background:var(--bg-dark);border-radius:6px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+            <span style="font-weight:600">${label}</span>
+            <span style="font-weight:700;color:${getScoreColor(score)}">${score}分</span>
+          </div>
+          <div style="font-size:11px;color:var(--text3);line-height:1.6">${comment}</div>
+        </div>
+      `;
+    }
+  }
+  
+  if (deepCheck.priority_suggestions && deepCheck.priority_suggestions.length > 0) {
+    html += '<div style="margin-top:12px">';
+    html += '<div style="font-weight:600;margin-bottom:8px">🎯 优先级建议</div>';
+    html += '<ul style="margin:0;padding-left:18px;font-size:11px;color:var(--text3);line-height:1.8">';
+    for (let sug of deepCheck.priority_suggestions) {
+      html += `<li>${sug}</li>`;
+    }
+    html += '</ul></div>';
+  }
+  
+  html += '</div>';
+  content.innerHTML = html;
+}
+
+async function showQualitySuggestions(chapter) {
+  const panel = document.getElementById('quality-suggestions-panel');
+  const content = document.getElementById('quality-suggestions-content');
+  
+  if (!panel || !content) return;
+  
+  content.innerHTML = '<div class="loading">加载中...</div>';
+  panel.style.display = '';
+  
+  try {
+    const res = await api(`/books/${currentBook.id}/quality/suggestions/${chapter}`);
+    
+    if (res.suggestions && res.suggestions.length > 0) {
+      content.innerHTML = res.suggestions.map(s => `
+        <div style="padding:10px 12px;border-bottom:1px solid var(--border);font-size:12px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+            <span style="font-weight:600;color:${getScoreColor(s.score)}">${s.dimension}</span>
+            <span style="font-size:10px;color:var(--text3)">评分: ${s.score}</span>
+          </div>
+          <div style="color:var(--text2)">${s.suggestion}</div>
+        </div>
+      `).join('');
+    } else {
+      content.innerHTML = '<div style="padding:12px;text-align:center;color:var(--text3);font-size:12px">🎉 所有维度评分良好，暂无优化建议</div>';
+    }
+  } catch (e) {
+    content.innerHTML = `<div class="error">加载失败: ${e.message}</div>`;
+  }
+}
+
+async function runDeepCheck(chapter) {
+  const btn = document.getElementById(`deep-check-btn-${chapter}`);
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '检查中...';
+  }
+  
+  toast('正在进行深度检查，请稍候（约10-30秒）...', 'loading');
+  
+  try {
+    const res = await api(`/books/${currentBook.id}/quality/deep-check/${chapter}`, {
+      method: 'POST'
+    });
+    
+    showDeepCheckResult(res);
+    toast('深度检查完成', true);
+  } catch (e) {
+    toast('深度检查失败: ' + e.message, false);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '🧠 深度检查';
+    }
+  }
+}
+
+function showDeepCheckResult(result) {
+  const panel = document.getElementById('quality-suggestions-panel');
+  const content = document.getElementById('quality-suggestions-content');
+  
+  if (!panel || !content) return;
+  
+  panel.style.display = '';
+  
+  let deep = result;
+  if (result && result.deep_check) {
+    deep = result.deep_check;
+  }
+  
+  if (!deep || deep.error) {
+    content.innerHTML = `
+      <div style="padding:12px">
+        <div style="font-size:12px;color:var(--text2);margin-bottom:8px">🧠 深度检查结果（JSON解析失败）</div>
+        <pre style="background:var(--bg-dark);padding:12px;border-radius:6px;font-size:11px;color:var(--text3);white-space:pre-wrap">${escapeHtml(deep.raw_result)}</pre>
+      </div>
+    `;
+    return;
+  }
+  
+  const dimensions = [
+    { key: 'plot_logic', label: '情节逻辑', icon: '📖' },
+    { key: 'character_consistency', label: '人物塑造', icon: '🎭' },
+    { key: 'language_style', label: '语言风格', icon: '✍️' },
+    { key: 'theme_fit', label: '主题契合', icon: '🎯' },
+    { key: 'creativity', label: '创意新颖', icon: '💡' },
+  ];
+  
+  content.innerHTML = `
+    <div style="padding:12px">
+      <div style="font-size:12px;color:var(--text2);margin-bottom:12px">🧠 LLM深度检查结果</div>
+      
+      <!-- 综合评分 -->
+      <div style="text-align:center;margin-bottom:16px">
+        <div style="width:60px;height:60px;margin:0 auto;border-radius:50%;background:conic-gradient(${getScoreColor(deep.overall_score)} calc(${deep.overall_score} * 3.6deg), var(--border) calc(${deep.overall_score} * 3.6deg));display:flex;align-items:center;justify-content:center;position:relative">
+          <div style="position:absolute;width:48px;height:48px;border-radius:50%;background:var(--bg-dark)"></div>
+          <span style="position:relative;font-size:16px;font-weight:700;color:${getScoreColor(deep.overall_score)}">${deep.overall_score}</span>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-top:4px">综合评分</div>
+      </div>
+      
+      <!-- 各维度评分 -->
+      ${dimensions.map(d => {
+        const data = deep[d.key];
+        if (!data) return '';
+        return `
+          <div style="margin-bottom:12px">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+              <span>${d.icon}</span>
+              <span style="font-size:12px;font-weight:600;color:var(--text)">${d.label}</span>
+              <span style="margin-left:auto;font-size:14px;font-weight:700;color:${getScoreColor(data.score)}">${data.score}</span>
+            </div>
+            <div style="font-size:11px;color:var(--text3);padding-left:24px;line-height:1.5">${data.comment}</div>
+          </div>
+        `;
+      }).join('')}
+      
+      <!-- 改进建议 -->
+      ${deep.suggestions && deep.suggestions.length > 0 ? `
+        <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+          <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:8px">💡 改进建议</div>
+          <ul style="margin:0;padding-left:20px;font-size:11px;color:var(--text3);line-height:1.8">
+            ${deep.suggestions.map((s, i) => `<li>${s}</li>`).join('')}
+          </ul>
+        </div>
+      ` : ''}
+    </div>
+  `;
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function renderTrendChart(chapters) {
+  if (!chapters || chapters.length === 0) {
+    return '<div style="height:100%;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:12px">暂无数据</div>';
+  }
+  
+  const width = 600;
+  const height = 180;
+  const padding = { top: 20, right: 20, bottom: 30, left: 40 };
+  const chartWidth = width - padding.left - padding.right;
+  const chartHeight = height - padding.top - padding.bottom;
+  
+  const maxScore = 100;
+  const minScore = 0;
+  
+  const points = chapters.map((ch, i) => {
+    const x = padding.left + (i / (chapters.length - 1)) * chartWidth;
+    const storyY = padding.top + chartHeight - ((ch.story_score || 0) / maxScore) * chartHeight;
+    const charY = padding.top + chartHeight - ((ch.character_score || 0) / maxScore) * chartHeight;
+    const langY = padding.top + chartHeight - ((ch.language_score || 0) / maxScore) * chartHeight;
+    const expY = padding.top + chartHeight - ((ch.experience_score || 0) / maxScore) * chartHeight;
+    return { x, storyY, charY, langY, expY, ch: ch.chapter_number };
+  });
+  
+  const storyLine = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.storyY}`).join(' ');
+  const charLine = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.charY}`).join(' ');
+  const langLine = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.langY}`).join(' ');
+  const expLine = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.expY}`).join(' ');
+  
+  const xLabels = points.filter((_, i) => i % Math.ceil(chapters.length / 6) === 0 || i === chapters.length - 1)
+    .map(p => `<text x="${p.x}" y="${height - 10}" text-anchor="middle" font-size="10" fill="var(--text3)">Ch.${p.ch}</text>`)
+    .join('');
+  
+  return `
+    <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" style="overflow:visible">
+      <!-- 网格线 -->
+      ${[0, 25, 50, 75, 100].map((score, i) => {
+        const y = padding.top + chartHeight - (score / maxScore) * chartHeight;
+        return `<line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" stroke="var(--border)" stroke-width="1" stroke-dasharray="4,4"/>
+                <text x="${padding.left - 8}" y="${y + 4}" text-anchor="end" font-size="10" fill="var(--text3)">${score}</text>`;
+      }).join('')}
+      
+      <!-- 数据线 -->
+      <path d="${storyLine}" class="trend-line" stroke="var(--green)" />
+      <path d="${charLine}" class="trend-line" stroke="var(--blue)" />
+      <path d="${langLine}" class="trend-line" stroke="var(--orange)" />
+      <path d="${expLine}" class="trend-line" stroke="var(--purple)" />
+      
+      <!-- 数据点 -->
+      ${points.map(p => `
+        <circle cx="${p.x}" cy="${p.storyY}" r="4" fill="var(--bg-dark)" stroke="var(--green)" stroke-width="2"/>
+        <circle cx="${p.x}" cy="${p.charY}" r="4" fill="var(--bg-dark)" stroke="var(--blue)" stroke-width="2"/>
+        <circle cx="${p.x}" cy="${p.langY}" r="4" fill="var(--bg-dark)" stroke="var(--orange)" stroke-width="2"/>
+        <circle cx="${p.x}" cy="${p.expY}" r="4" fill="var(--bg-dark)" stroke="var(--purple)" stroke-width="2"/>
+      `).join('')}
+      
+      <!-- X轴标签 -->
+      ${xLabels}
+    </svg>
+  `;
 }
 
 async function loadStoryData() {

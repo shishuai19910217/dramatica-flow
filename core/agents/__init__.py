@@ -655,18 +655,40 @@ class ReviserAgent:
         original_content: str,
         issues: list[AuditIssue],
         mode: ReviseMode = "spot-fix",
+        custom_prompt: str | None = None,
     ) -> ReviseResult:
         critical = [i for i in issues if i.severity == "critical"]
         warnings  = [i for i in issues if i.severity == "warning"]
 
-        if not critical and mode == "spot-fix":
+        if not critical and not warnings:
             return ReviseResult(
                 content=original_content,
-                change_log=["无 critical 问题，跳过修订"],
+                change_log=["无需要修复的问题"],
             )
 
+        # 专门处理字数偏差问题
+        word_count_issue = None
+        target_words = None
+        
+        # 检测并提取字数偏差信息 - 需要同时检查 dimension 和 description
+        import re
+        for i in critical + warnings:
+            if ("WORD_COUNT_DEVIATION" in i.dimension or 
+                "WORD_COUNT_DEVIATION" in i.description or 
+                "字数偏差" in i.dimension or 
+                "字数偏差" in i.description):
+                word_count_issue = i
+                # 从描述中提取目标字数
+                match = re.search(r"目标\s*(\d+)\s*字", i.description)
+                if match:
+                    target_words = int(match.group(1))
+                break
+
+        # 构建问题列表
         issue_lines = []
         for i in (critical + warnings):
+            if i == word_count_issue:
+                continue  # 字数偏差问题单独处理
             line = f"- [{i.severity.upper()}] {i.dimension}：{i.description}"
             if i.location:
                 line += f"\n  原文位置：「{i.location}」"
@@ -674,14 +696,43 @@ class ReviserAgent:
                 line += f"\n  修复建议：{i.suggestion}"
             issue_lines.append(line)
 
-        prompt = f"""\
+        # 如果有字数偏差，添加特殊提示
+        word_count_instruction = ""
+        if word_count_issue and target_words:
+            current_words = len(original_content)
+            is_too_long = len(original_content) > target_words * 1.2
+            is_too_short = len(original_content) < target_words * 0.8
+            
+            if is_too_long:
+                operation_text = "适当精简压缩内容，删除冗余描写，保持核心情节"
+                action_text = "精简"
+            else:
+                operation_text = "扩充内容，增加细节描写，丰富情节"
+                action_text = "扩充"
+            
+            word_count_instruction = f"""
+## 特别注意：字数调整要求
+- 当前字数：{len(original_content)} 字
+- 目标字数：{target_words} 字
+- 操作：{operation_text}
+- 要求：请直接对全文进行{action_text}，字数接近目标字数，保持剧情走向和核心内容完全不变。
+"""
+
+        # 如果有自定义提示词，直接使用
+        if custom_prompt:
+            prompt = custom_prompt
+        else:
+            # 使用默认提示词
+            prompt = f"""\
 ## 修订任务
 模式：{mode}
 规则：{_MODE_INSTRUCTIONS[mode]}
 硬约束：不得引入新情节，不得修改角色名，不得改变情节走向。
 
+{word_count_instruction}
+
 ## 需修订的问题
-{chr(10).join(issue_lines)}
+{chr(10).join(issue_lines) if issue_lines else "（无其他问题，只需调整字数）"}
 
 ## 原文
 {original_content}
@@ -692,23 +743,34 @@ class ReviserAgent:
 ["改动说明1", "改动说明2", ...]"""
 
         def _call() -> ReviseResult:
+            # 构建系统消息
+            system_content = "你是专业的小说编辑和修订者。"
+            if custom_prompt:
+                system_content = "你是专业的小说编辑和修订者，请根据用户提供的分析和要求进行优化。"
+            else:
+                system_content = f"你是精准的小说修订者，模式：{mode}。{_MODE_INSTRUCTIONS[mode]}直接输出修订后正文，不要任何前言。"
+            
             resp = self.llm.complete([
-                LLMMessage(
-                    "system",
-                    f"你是精准的小说修订者，模式：{mode}。"
-                    f"{_MODE_INSTRUCTIONS[mode]}"
-                    "直接输出修订后正文，不要任何前言。",
-                ),
+                LLMMessage("system", system_content),
                 LLMMessage("user", prompt),
             ])
-            parts = resp.content.split(CHANGELOG_SEPARATOR, 1)
-            content = parts[0].strip()
-            change_log: list[str] = []
-            if len(parts) > 1:
-                try:
-                    change_log = json.loads(parts[1].strip())
-                except Exception:
-                    change_log = [parts[1].strip()[:200]]
+            
+            # 处理响应
+            if custom_prompt:
+                # 自定义提示词模式：直接返回内容
+                content = resp.content.strip()
+                change_log = ["基于深度分析的质量优化"]
+            else:
+                # 默认模式：解析变更日志
+                parts = resp.content.split(CHANGELOG_SEPARATOR, 1)
+                content = parts[0].strip()
+                change_log: list[str] = []
+                if len(parts) > 1:
+                    try:
+                        change_log = json.loads(parts[1].strip())
+                    except Exception:
+                        change_log = [parts[1].strip()[:200]]
+            
             return ReviseResult(content=content, change_log=change_log)
 
         return with_retry(_call)

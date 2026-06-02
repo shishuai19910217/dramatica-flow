@@ -96,6 +96,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 启动时加载环境变量
+@app.on_event("startup")
+async def startup_event():
+    _load_env()
+    logging.info("Environment variables loaded from .env")
+
 # ── 数据规范化工具 ──────────────────────────────────────────────────────────
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -2500,10 +2506,12 @@ async def ai_continue_outline(book_id: str, req: AiContinueOutlineReq):
 
 @app.post("/api/books/{book_id}/ai-generate/chapter-outlines")
 async def ai_generate_chapter_outlines(book_id: str):
-    """基于已有大纲生成全部章纲"""
+    """基于已有大纲生成全部章纲（流式返回进度）"""
     _load_env()
     from core.setup import SetupLoader
     from core.narrative import NarrativeEngine, StoryOutlineSchema
+    from starlette.responses import StreamingResponse
+    from sse_starlette.sse import EventSourceResponse
 
     sm = _sm(book_id)
     outline_path = sm.state_dir / "outline.json"
@@ -2536,27 +2544,64 @@ async def ai_generate_chapter_outlines(book_id: str):
         raise HTTPException(400, "未找到主角角色信息，请检查角色配置")
     engine = NarrativeEngine(llm)
 
-    try:
+    async def generate_outlines():
         all_outlines = []
         ch_start = 1
-        for seq in outline.sequences:
-            cos = await asyncio.to_thread(
-                engine.generate_chapter_outlines,
-                seq, protagonist,
-                sm.read_truth("story_bible"),
-                ch_start,
-                state.config.target_words_per_chapter,
-            )
-            all_outlines.extend(cos)
-            ch_start += len(cos)
+        total_sequences = len(outline.sequences)
+        completed_chapters = 0
+        
+        yield json.dumps({
+            "status": "started",
+            "total_sequences": total_sequences,
+            "message": "开始生成章节大纲..."
+        })
+        
+        try:
+            for seq_idx, seq in enumerate(outline.sequences):
+                cos = await asyncio.to_thread(
+                    engine.generate_chapter_outlines,
+                    seq, protagonist,
+                    sm.read_truth("story_bible"),
+                    ch_start,
+                    state.config.target_words_per_chapter,
+                )
+                
+                all_outlines.extend(cos)
+                
+                for co in cos:
+                    completed_chapters += 1
+                    yield json.dumps({
+                        "status": "progress",
+                        "sequence": seq_idx + 1,
+                        "total_sequences": total_sequences,
+                        "chapter_number": co.chapter_number,
+                        "chapter_title": co.title,
+                        "completed_chapters": completed_chapters,
+                        "message": f"已完成第 {co.chapter_number} 章大纲"
+                    })
+                
+                ch_start += len(cos)
 
-        result_data = [o.model_dump() for o in all_outlines]
-        path = sm.state_dir / "chapter_outlines.json"
-        path.write_text(json.dumps(result_data, ensure_ascii=False, indent=2), encoding="utf-8")
-        return {"ok": True, "count": len(all_outlines), "outlines": result_data}
-    except Exception as e:
-        import traceback; traceback.print_exc()
-        raise HTTPException(500, f"章纲生成失败：{e}")
+            result_data = [o.model_dump() for o in all_outlines]
+            path = sm.state_dir / "chapter_outlines.json"
+            path.write_text(json.dumps(result_data, ensure_ascii=False, indent=2), encoding="utf-8")
+            
+            yield json.dumps({
+                "status": "completed",
+                "count": len(all_outlines),
+                "outlines": result_data,
+                "message": f"全部 {len(all_outlines)} 章大纲生成完成"
+            })
+            
+        except Exception as e:
+            import traceback; traceback.print_exc()
+            yield json.dumps({
+                "status": "error",
+                "error": str(e),
+                "message": f"生成失败：{e}"
+            })
+
+    return EventSourceResponse(generate_outlines())
 
 
 # ── /api/action/*  三层审计 ───────────────────────────────────────────────────
@@ -2706,6 +2751,648 @@ def list_audit_results(book_id: str):
             "summary": data.get("summary", ""),
         })
     return results
+
+
+@app.get("/api/books/{book_id}/quality/report/{chapter}")
+def get_quality_report(book_id: str, chapter: int):
+    """获取章节质量报告"""
+    sm = _sm(book_id)
+    content = sm.read_final(chapter) or sm.read_draft(chapter)
+    if not content:
+        raise HTTPException(404, "章节不存在")
+    
+    # 计算各维度评分（简化版）
+    story_score = calculate_story_score(content)
+    character_score = calculate_character_score(content)
+    language_score = calculate_language_score(content)
+    experience_score = calculate_experience_score(content)
+    
+    return {
+        "chapter_number": chapter,
+        "story_score": story_score,
+        "character_score": character_score,
+        "language_score": language_score,
+        "experience_score": experience_score,
+        "overall_score": round((story_score + character_score + language_score + experience_score) / 4, 1),
+    }
+
+
+@app.get("/api/books/{book_id}/quality/trend")
+def get_quality_trend(book_id: str):
+    """获取全书质量趋势"""
+    sm = _sm(book_id)
+    trend_data = []
+    
+    # 获取所有章节编号
+    all_chapters = set()
+    for f in sm.chapter_dir.glob("*_final.md"):
+        n = int(f.stem.split("_")[0].replace("ch", ""))
+        all_chapters.add(n)
+    for f in sm.chapter_dir.glob("*_draft.md"):
+        n = int(f.stem.split("_")[0].replace("ch", ""))
+        all_chapters.add(n)
+    
+    # 按章节号排序
+    sorted_chapters = sorted(all_chapters)
+    
+    for ch_num in sorted_chapters:
+        content = sm.read_final(ch_num) or sm.read_draft(ch_num)
+        if content:
+            story_score = calculate_story_score(content)
+            char_score = calculate_character_score(content)
+            lang_score = calculate_language_score(content)
+            exp_score = calculate_experience_score(content)
+            trend_data.append({
+                "chapter_number": ch_num,
+                "story_score": story_score,
+                "character_score": char_score,
+                "language_score": lang_score,
+                "experience_score": exp_score,
+                "overall_score": round((story_score + char_score + lang_score + exp_score) / 4, 1),
+            })
+    
+    return {"chapters": trend_data}
+
+
+def calculate_story_score(content: str) -> float:
+    """计算故事层面评分"""
+    score = 75.0
+    # 简单的启发式评分：检查情节关键词
+    plot_keywords = ["但是", "然而", "突然", "原来", "最终", "终于", "决定", "发现", "冲突", "危机"]
+    for kw in plot_keywords:
+        if kw in content:
+            score += 0.5
+    # 检查段落结构
+    paragraphs = content.split('\n\n')
+    if len(paragraphs) >= 3:
+        score += 5
+    # 字数评分
+    if len(content) >= 3000:
+        score += 5
+    return min(round(score, 1), 100)
+
+
+def calculate_character_score(content: str) -> float:
+    """计算人物层面评分"""
+    score = 70.0
+    # 检查人物相关描写
+    char_keywords = ["他想", "她想", "心中", "眼神", "表情", "语气", "犹豫", "坚定", "愤怒", "悲伤"]
+    for kw in char_keywords:
+        if kw in content:
+            score += 0.8
+    # 检查对话
+    if '“' in content or '"' in content:
+        score += 8
+    return min(round(score, 1), 100)
+
+
+def calculate_language_score(content: str) -> float:
+    """计算语言层面评分"""
+    score = 72.0
+    # 检查AI痕迹
+    ai_markers = ["仿佛", "似乎", "忽然", "突然", "一瞬间", "那一刻", "与此同时"]
+    marker_count = sum(content.count(kw) for kw in ai_markers)
+    if marker_count <= 3:
+        score += 10
+    elif marker_count <= 6:
+        score += 5
+    # 检查语言多样性
+    unique_chars = len(set(content))
+    if unique_chars >= 500:
+        score += 8
+    # 检查标点使用
+    if content.count('。') >= 10:
+        score += 5
+    return min(round(score, 1), 100)
+
+
+def calculate_experience_score(content: str) -> float:
+    """计算阅读体验评分"""
+    score = 70.0
+    # 检查结尾悬念
+    last_sentence = content.strip().split('。')[-1][:50]
+    if '？' in last_sentence or '！' in last_sentence or len(last_sentence) < 10:
+        score += 10
+    # 检查段落长度
+    avg_length = sum(len(p) for p in content.split('\n\n')) / max(len(content.split('\n\n')), 1)
+    if 50 <= avg_length <= 200:
+        score += 10
+    # 检查情感词
+    emotion_words = ["感动", "震撼", "紧张", "激动", "悲伤", "喜悦", "惊讶", "恐惧"]
+    for ew in emotion_words:
+        if ew in content:
+            score += 1
+    return min(round(score, 1), 100)
+
+
+# 质量阈值配置
+QUALITY_THRESHOLD = {
+    "critical": 40,
+    "warning": 60,
+    "pass": 80
+}
+
+
+@app.post("/api/books/{book_id}/quality/check-and-revise/{chapter}")
+async def check_and_revise(book_id: str, chapter: int):
+    """检查质量并自动修订（结合深度检查结果）"""
+    _load_env()
+    from core.llm import LLMMessage
+    from core.agents import AuditIssue
+    sm = _sm(book_id)
+    content = sm.read_final(chapter) or sm.read_draft(chapter)
+    if not content:
+        raise HTTPException(404, "章节不存在")
+    
+    # 1. 计算基础质量评分
+    story_score = calculate_story_score(content)
+    char_score = calculate_character_score(content)
+    lang_score = calculate_language_score(content)
+    exp_score = calculate_experience_score(content)
+    overall_score = round((story_score + char_score + lang_score + exp_score) / 4, 1)
+    
+    # 2. 执行深度检查获取详细分析
+    book_info = get_book(book_id)
+    genre = book_info.get('genre', '') if book_info else ''
+    
+    # 构建深度检查提示词
+    deep_check_prompt = f"""请深度分析以下小说章节，从多个维度进行评估并提供具体的优化建议：
+
+【小说题材】{genre}
+
+【章节内容】
+{content[:3000]}
+
+请按以下JSON格式输出分析结果：
+{{
+  "plot_logic": {{
+    "score": 0-100,
+    "comment": "分析因果链完整性、情节合理性、逻辑漏洞",
+    "suggestions": ["具体建议1", "具体建议2"]
+  }},
+  "character_consistency": {{
+    "score": 0-100,
+    "comment": "分析人物行为是否符合设定、情感变化是否合理",
+    "suggestions": ["具体建议1", "具体建议2"]
+  }},
+  "language_style": {{
+    "score": 0-100,
+    "comment": "评估文笔质量、语言流畅度、风格一致性",
+    "suggestions": ["具体建议1", "具体建议2"]
+  }},
+  "theme_fit": {{
+    "score": 0-100,
+    "comment": "评估内容是否符合题材、主题表达是否清晰",
+    "suggestions": ["具体建议1", "具体建议2"]
+  }},
+  "creativity": {{
+    "score": 0-100,
+    "comment": "评估情节创意、设定创新程度",
+    "suggestions": ["具体建议1", "具体建议2"]
+  }},
+  "overall_score": 0-100,
+  "priority_suggestions": ["优先级最高的3个具体优化建议"]
+}}
+
+请确保JSON格式正确，不要有多余的文本。"""
+    
+    # 调用LLM进行深度检查
+    llm = _create_llm()
+    deep_check_response = await asyncio.to_thread(
+        llm.complete,
+        [
+            LLMMessage(
+                role="system", 
+                content="你是专业的小说编辑和评论家，擅长分析小说质量并提供具体的优化建议。"
+            ), 
+            LLMMessage(role="user", content=deep_check_prompt)
+        ]
+    )
+    
+    # 解析深度检查结果
+    deep_check_result = None
+    try:
+        import json
+        deep_check_result = json.loads(deep_check_response.content)
+    except Exception:
+        # 如果JSON解析失败，使用原始响应
+        pass
+    
+    # 3. 构建修订问题列表
+    issues = []
+    
+    if deep_check_result:
+        # 从深度检查结果中提取问题
+        dimensions = [
+            ("plot_logic", "故事逻辑", "critical"),
+            ("character_consistency", "人物塑造", "warning"),
+            ("language_style", "语言风格", "warning"),
+            ("theme_fit", "主题契合", "warning"),
+            ("creativity", "创意新颖", "info")
+        ]
+        
+        for key, name, severity in dimensions:
+            if key in deep_check_result:
+                score = deep_check_result[key].get("score", 0)
+                if score < 70:  # 分数低于70需要优化
+                    issues.append(AuditIssue(
+                        dimension=name,
+                        severity=severity,
+                        description=f"{name}评分：{score}分",
+                        suggestion=deep_check_result[key].get("comment", "")
+                    ))
+        
+        # 添加优先级建议
+        if "priority_suggestions" in deep_check_result:
+            for i, suggestion in enumerate(deep_check_result["priority_suggestions"]):
+                issues.append(AuditIssue(
+                    dimension="优先级建议",
+                    severity="warning",
+                    description=f"重要建议{i+1}",
+                    suggestion=suggestion
+                ))
+    else:
+        # 没有深度检查结果时使用基础问题
+        issues = [AuditIssue(
+            dimension="质量优化",
+            severity="warning",
+            description=f"质量评分过低（{overall_score}分），需要优化",
+            suggestion="请增加情节冲突、人物描写和语言多样性"
+        )]
+    
+    # 4. 执行自动修订
+    from core.agents import ReviserAgent
+    llm = _create_llm()
+    reviser = ReviserAgent(llm)
+    
+    # 构建修订提示词
+    revise_prompt = f"""请基于以下分析优化这篇小说章节：
+
+【深度分析结果】
+{json.dumps(deep_check_result, ensure_ascii=False) if deep_check_result else "基础质量评估：" + str(overall_score) + "分"}
+
+【优化要求】
+- 保持原有的核心情节和人物设定
+- 重点优化分数较低的维度
+- 提升文笔质量和阅读体验
+- 增加情节张力和人物深度
+- 确保语言自然流畅，减少AI痕迹
+
+【原始内容】
+{content}
+
+请直接输出优化后的完整章节内容。"""
+    
+    # 调用修订器
+    revise_result = reviser.revise(
+        content, 
+        issues, 
+        mode="quality-improve",
+        custom_prompt=revise_prompt
+    )
+    
+    revised_content = revise_result.content
+    sm.save_draft(chapter, revised_content)
+    
+    # 5. 重新计算评分
+    new_story = calculate_story_score(revised_content)
+    new_char = calculate_character_score(revised_content)
+    new_lang = calculate_language_score(revised_content)
+    new_exp = calculate_experience_score(revised_content)
+    new_overall = round((new_story + new_char + new_lang + new_exp) / 4, 1)
+    
+    return {
+        "status": "revised",
+        "original_score": overall_score,
+        "new_score": new_overall,
+        "revised": True,
+        "changes": revise_result.change_log,
+        "deep_check": deep_check_result,
+        "original_dimensions": {
+            "story_score": story_score,
+            "character_score": char_score,
+            "language_score": lang_score,
+            "experience_score": exp_score
+        },
+        "new_dimensions": {
+            "story_score": new_story,
+            "character_score": new_char,
+            "language_score": new_lang,
+            "experience_score": new_exp
+        }
+    }
+
+
+@app.get("/api/books/{book_id}/quality/suggestions/{chapter}")
+def get_quality_suggestions(book_id: str, chapter: int):
+    """获取针对性优化建议"""
+    sm = _sm(book_id)
+    content = sm.read_final(chapter) or sm.read_draft(chapter)
+    if not content:
+        raise HTTPException(404, "章节不存在")
+    
+    story_score = calculate_story_score(content)
+    char_score = calculate_character_score(content)
+    lang_score = calculate_language_score(content)
+    exp_score = calculate_experience_score(content)
+    
+    suggestions = []
+    
+    if story_score < 60:
+        suggestions.append({
+            "dimension": "故事层面",
+            "score": story_score,
+            "suggestion": "建议增加更多情节转折和冲突，使用'但是'、'然而'等词制造悬念",
+            "action": "add_plot_twists"
+        })
+    
+    if char_score < 60:
+        suggestions.append({
+            "dimension": "人物层面",
+            "score": char_score,
+            "suggestion": "建议增加人物心理描写和对话，使角色更立体",
+            "action": "add_character_depth"
+        })
+    
+    if lang_score < 60:
+        suggestions.append({
+            "dimension": "语言层面",
+            "score": lang_score,
+            "suggestion": "建议减少AI痕迹词（如'仿佛'、'似乎'），增加语言多样性",
+            "action": "improve_language"
+        })
+    
+    if exp_score < 60:
+        suggestions.append({
+            "dimension": "阅读体验",
+            "score": exp_score,
+            "suggestion": "建议优化章节结尾，增加悬念钩子吸引读者继续阅读",
+            "action": "improve_cliffhanger"
+        })
+    
+    return {
+        "chapter_number": chapter,
+        "suggestions": suggestions,
+        "has_suggestions": len(suggestions) > 0
+    }
+
+
+@app.put("/api/books/{book_id}/quality/threshold")
+def set_quality_threshold(book_id: str, req: dict):
+    """设置质量阈值配置"""
+    global QUALITY_THRESHOLD
+    
+    if "critical" in req:
+        QUALITY_THRESHOLD["critical"] = int(req["critical"])
+    if "warning" in req:
+        QUALITY_THRESHOLD["warning"] = int(req["warning"])
+    if "pass" in req:
+        QUALITY_THRESHOLD["pass"] = int(req["pass"])
+    
+    return {"ok": True, "threshold": QUALITY_THRESHOLD}
+
+
+@app.get("/api/books/{book_id}/quality/overview")
+def get_book_quality_overview(book_id: str):
+    """获取全书质量概览"""
+    sm = _sm(book_id)
+    
+    # 获取所有章节
+    all_chapters = set()
+    for f in sm.chapter_dir.glob("*_final.md"):
+        n = int(f.stem.split("_")[0].replace("ch", ""))
+        all_chapters.add(n)
+    for f in sm.chapter_dir.glob("*_draft.md"):
+        n = int(f.stem.split("_")[0].replace("ch", ""))
+        all_chapters.add(n)
+    
+    quality_data = []
+    
+    for ch_num in sorted(all_chapters):
+        content = sm.read_final(ch_num) or sm.read_draft(ch_num)
+        title = f"第{ch_num}章"
+        # 尝试获取章节标题
+        try:
+            outline = sm.read_outline(ch_num)
+            if outline and hasattr(outline, 'title') and outline.title:
+                title = outline.title
+        except:
+            pass
+        
+        if content:
+            story_score = calculate_story_score(content)
+            char_score = calculate_character_score(content)
+            lang_score = calculate_language_score(content)
+            exp_score = calculate_experience_score(content)
+            quality_data.append({
+                "chapter_number": ch_num,
+                "title": title,
+                "story_score": story_score,
+                "character_score": char_score,
+                "language_score": lang_score,
+                "experience_score": exp_score,
+                "overall_score": round((story_score + char_score + lang_score + exp_score) / 4, 1),
+            })
+    
+    # 计算全书统计
+    total_chapters = len(quality_data)
+    avg_story = sum(d["story_score"] for d in quality_data) / total_chapters if total_chapters else 0
+    avg_char = sum(d["character_score"] for d in quality_data) / total_chapters if total_chapters else 0
+    avg_lang = sum(d["language_score"] for d in quality_data) / total_chapters if total_chapters else 0
+    avg_exp = sum(d["experience_score"] for d in quality_data) / total_chapters if total_chapters else 0
+    
+    # 找出问题章节和最佳章节
+    problem_chapters = [d for d in quality_data if d["overall_score"] < QUALITY_THRESHOLD["warning"]]
+    top_chapters = sorted(quality_data, key=lambda x: x["overall_score"], reverse=True)[:3]
+    
+    return {
+        "book_id": book_id,
+        "total_chapters": total_chapters,
+        "avg_story_score": round(avg_story, 1),
+        "avg_character_score": round(avg_char, 1),
+        "avg_language_score": round(avg_lang, 1),
+        "avg_experience_score": round(avg_exp, 1),
+        "book_overall_score": round((avg_story + avg_char + avg_lang + avg_exp) / 4, 1),
+        "problem_chapters_count": len(problem_chapters),
+        "top_chapters": top_chapters,
+        "problematic_chapters": problem_chapters,
+        "all_chapters": quality_data,
+    }
+
+
+@app.post("/api/books/{book_id}/quality/deep-check/{chapter}")
+async def deep_check_chapter(book_id: str, chapter: int):
+    """使用LLM进行深度质量检查"""
+    _load_env()
+    sm = _sm(book_id)
+    content = sm.read_final(chapter) or sm.read_draft(chapter)
+    if not content:
+        raise HTTPException(404, "章节不存在")
+    
+    # 获取书籍信息
+    book_info = get_book(book_id)
+    genre = book_info.get('genre', '') if book_info else ''
+    
+    # 构建检查提示词
+    prompt = f"""请深度分析以下小说章节，从多个维度进行评估：
+
+【小说题材】{genre}
+
+【章节内容】
+{content[:3000]}
+
+请按以下JSON格式输出分析结果：
+{{
+  "plot_logic": {{
+    "score": 0-100,
+    "comment": "分析因果链完整性、情节合理性、逻辑漏洞"
+  }},
+  "character_consistency": {{
+    "score": 0-100,
+    "comment": "分析人物行为是否符合设定、情感变化是否合理"
+  }},
+  "language_style": {{
+    "score": 0-100,
+    "comment": "评估文笔质量、语言流畅度、风格一致性"
+  }},
+  "theme_fit": {{
+    "score": 0-100,
+    "comment": "评估内容是否符合题材、主题表达是否清晰"
+  }},
+  "creativity": {{
+    "score": 0-100,
+    "comment": "评估情节创意、设定创新程度"
+  }},
+  "overall_score": 0-100,
+  "suggestions": ["改进建议1", "改进建议2", "改进建议3"]
+}}
+
+请确保JSON格式正确，不要有多余的文本。
+"""
+    
+    # 调用LLM（使用系统现有的LLM创建方式）
+    from core.llm import LLMMessage
+    try:
+        llm = _create_llm()
+        resp = await asyncio.to_thread(
+            llm.complete,
+            [LLMMessage("system", "你是专业的小说分析专家，只输出合法 JSON。"), LLMMessage("user", prompt)],
+        )
+        raw = resp.content.strip()
+        
+        # 尝试解析JSON
+        import json
+        try:
+            deep_result = json.loads(raw)
+        except:
+            # 如果JSON解析失败，返回原始结果
+            deep_result = {
+                "raw_result": raw,
+                "error": "JSON解析失败"
+            }
+    except Exception as e:
+        raise HTTPException(500, f"LLM调用失败: {str(e)}")
+    
+    return {
+        "chapter_number": chapter,
+        "deep_check": deep_result,
+        "timestamp": datetime.now().isoformat()
+    }
+
+
+@app.get("/api/books/{book_id}/quality/issues-summary")
+def get_quality_issues_summary(book_id: str):
+    """获取全书问题汇总"""
+    sm = _sm(book_id)
+    
+    issues_summary = {
+        "total_issues": 0,
+        "critical_count": 0,
+        "warning_count": 0,
+        "info_count": 0,
+        "by_dimension": {
+            "故事层面": [],
+            "人物层面": [],
+            "语言层面": [],
+            "阅读体验": []
+        },
+        "common_problems": [],
+        "suggestions": []
+    }
+    
+    # 获取所有章节
+    all_chapters = set()
+    for f in sm.chapter_dir.glob("*_final.md"):
+        n = int(f.stem.split("_")[0].replace("ch", ""))
+        all_chapters.add(n)
+    for f in sm.chapter_dir.glob("*_draft.md"):
+        n = int(f.stem.split("_")[0].replace("ch", ""))
+        all_chapters.add(n)
+    
+    # 收集问题
+    all_issues = []
+    
+    for ch_num in sorted(all_chapters):
+        content = sm.read_final(ch_num) or sm.read_draft(ch_num)
+        if content:
+            story_score = calculate_story_score(content)
+            char_score = calculate_character_score(content)
+            lang_score = calculate_language_score(content)
+            exp_score = calculate_experience_score(content)
+            
+            if story_score < 60:
+                all_issues.append({
+                    "dimension": "故事层面",
+                    "severity": "warning" if story_score >= 40 else "critical",
+                    "description": f"第{ch_num}章故事层面评分较低",
+                    "chapter": ch_num,
+                    "score": story_score
+                })
+            if char_score < 60:
+                all_issues.append({
+                    "dimension": "人物层面",
+                    "severity": "warning" if char_score >= 40 else "critical",
+                    "description": f"第{ch_num}章人物层面评分较低",
+                    "chapter": ch_num,
+                    "score": char_score
+                })
+            if lang_score < 60:
+                all_issues.append({
+                    "dimension": "语言层面",
+                    "severity": "warning" if lang_score >= 40 else "critical",
+                    "description": f"第{ch_num}章语言层面评分较低",
+                    "chapter": ch_num,
+                    "score": lang_score
+                })
+            if exp_score < 60:
+                all_issues.append({
+                    "dimension": "阅读体验",
+                    "severity": "warning" if exp_score >= 40 else "critical",
+                    "description": f"第{ch_num}章阅读体验评分较低",
+                    "chapter": ch_num,
+                    "score": exp_score
+                })
+    
+    # 统计问题
+    issues_summary["total_issues"] = len(all_issues)
+    issues_summary["critical_count"] = sum(1 for i in all_issues if i["severity"] == "critical")
+    issues_summary["warning_count"] = sum(1 for i in all_issues if i["severity"] == "warning")
+    
+    # 按维度分类
+    for issue in all_issues:
+        issues_summary["by_dimension"][issue["dimension"]].append(issue)
+    
+    # 识别常见问题
+    issue_counts = {}
+    for issue in all_issues:
+        key = issue["description"].split("第")[0].strip()
+        issue_counts[key] = (issue_counts.get(key) or 0) + 1
+    
+    issues_summary["common_problems"] = sorted(
+        issue_counts.items(), key=lambda x: x[1], reverse=True
+    )[:5]
+    
+    return issues_summary
 
 
 @app.put("/api/books/{book_id}/chapters/{chapter}/content")
