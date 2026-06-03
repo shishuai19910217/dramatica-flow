@@ -1,11 +1,11 @@
 """
 写作管线核心模块
 
-本模块实现了 Dramatica-Flow 的核心写作管线，将长篇小说创作流程工程化为可量化、可追踪的11步流程：
+本模块实现了 Dramatica-Flow 的核心写作管线，将长篇小说创作流程工程化为可量化、可追踪的15步流程：
 
-流程架构：
+流程架构（优化后）：
     [快照备份] → [建筑师规划] → [写手写章] → [写后验证] → [审计→修订闭环] 
-        → [保存最终稿] → [因果链提取] → [摘要生成] → [状态更新] → [时间轴记录] → [掉线预警]
+        → [质量评估+修订] → [因果链提取] → [摘要生成] → [保存最终稿] → [状态更新] → [时间轴记录] → [掉线预警]
 
 核心特性：
     1. 多线叙事支持：根据线程权重动态调整字数分配
@@ -13,6 +13,7 @@
     3. 修订闭环：审计不通过自动触发修订，最多 MAX_REVISE_ROUNDS 轮
     4. 写后结算表：系统记录角色位置/情感/关系/伏笔/信息的变化
     5. 支线掉线预警：超过阈值章节未活跃的线程自动告警
+    6. 质量评估体系：六个核心维度 + 六大连贯性层次的全面质量评估
 
 修改记录：
     - AuditIssue 构造不再传 excerpt 到 location
@@ -20,6 +21,8 @@
     - 集成 SummaryAgent，写完生成摘要注入 chapter_summaries.md
     - WriterAgent 获得前情摘要上下文
     - _apply_settlement 完整处理位置/情感/关系变化
+    - 新增 QualityAgent 集成，支持全面质量评估和自动修订
+    - 流程优化：摘要生成在保存之前，确保状态完整性
 """
 from __future__ import annotations
 
@@ -35,6 +38,7 @@ from .agents import (
     AuditorAgent, AuditReport, AuditIssue,
     ReviserAgent, ReviseResult,
     SummaryAgent,
+    QualityAgent, QualityReport,
 )
 # 叙事引擎导入
 from .narrative import NarrativeEngine, ChapterOutlineSchema
@@ -68,6 +72,8 @@ class PipelineResult:
         thread_id: 所属叙事线程ID
         pov_character_id: 视角角色ID
         dormancy_warnings: 支线掉线预警列表
+        quality_score: 质量综合评分（0-100）
+        quality_report: 质量评估报告
     """
     chapter_number: int
     content: str
@@ -80,6 +86,9 @@ class PipelineResult:
     thread_id: str = ""
     pov_character_id: str = ""
     dormancy_warnings: list[str] = field(default_factory=list)
+    # 质量评估扩展字段
+    quality_score: Optional[int] = None
+    quality_report: Optional[QualityReport] = None
 
 
 class WritingPipeline:
@@ -88,24 +97,29 @@ class WritingPipeline:
     
     实现完整的单章写作流程，协调多个 Agent 协同工作。
     
-    管线流程详解：
+    管线流程详解（优化后）：
         1. 快照备份：保存当前世界状态，支持回滚
         2. 建筑师规划：分析章纲和世界状态，生成写作蓝图
         3. 写手写章：基于蓝图生成正文 + 写后结算表
         4. 写后验证：零 LLM 硬规则检测（字数、格式等）
         5. 审计修订：叙事质量审计，critical问题触发自动修订
-        6. 保存最终稿：写入正式章节文件
+        6. 质量评估+修订：六个核心维度 + 六大连贯性层次全面评估
         7. 因果链提取：从正文中提取因果关系链
-        8. 摘要生成：生成章节摘要注入 chapter_summaries.md
-        9. 状态更新：将结算表应用到 world_state
-        10. 时间轴记录：添加 TimelineEvent
-        11. 掉线预警：检测超过阈值未活跃的支线
+        8. 摘要生成：生成章节摘要注入 chapter_summaries.md（最后处理环节）
+        9. 保存最终稿：写入正式章节文件（最后保存步骤）
+        10. 状态更新：将结算表应用到 world_state
+        11. 时间轴记录：添加 TimelineEvent
+        12. 掉线预警：检测超过阈值未活跃的支线
     
     多线程支持：
         - 根据章纲的 thread_id 解析视角角色和线程上下文
         - 跨线程感知：建筑师/写手/审计员均获得其他线程状态
         - 线程权重管理：根据线程 weight 调整字数分配
         - 支线掉线预警：章后检测并报告长时间未活跃的线程
+    
+    质量评估体系：
+        - 六个核心维度：情节、人物、设定、语言、阅读体验、类型适配
+        - 六大连贯性层次：时间、空间、逻辑、情绪、信息、风格
     """
 
     # 最大修订轮数，防止无限循环
@@ -123,6 +137,7 @@ class WritingPipeline:
         validator: PostWriteValidator,
         protagonist: Character,
         all_characters: list[Character],
+        quality_agent: Optional[QualityAgent] = None,
     ):
         """
         初始化写作管线
@@ -134,10 +149,11 @@ class WritingPipeline:
             auditor: 审计员 Agent，负责叙事质量审计
             reviser: 修订者 Agent，负责根据审计结果修订内容
             narrative_engine: 叙事引擎，负责因果链提取等核心叙事逻辑
-            summary_agent: 摘要 Agent，负责生成章节摘要
+            summary_agent: 摘要 Agent，负责生成章节摘要（最后处理环节）
             validator: 写后验证器，负责零 LLM 的硬规则检测
             protagonist: 主角角色对象
             all_characters: 所有角色列表
+            quality_agent: 质量评估 Agent（可选，用于全面质量评估和修订）
         """
         self.sm = state_manager              # 状态管理器
         self.architect = architect            # 建筑师 Agent
@@ -145,10 +161,11 @@ class WritingPipeline:
         self.auditor = auditor                # 审计员 Agent
         self.reviser = reviser                # 修订者 Agent
         self.engine = narrative_engine        # 叙事引擎
-        self.summary_agent = summary_agent    # 摘要生成 Agent
+        self.summary_agent = summary_agent    # 摘要生成 Agent（最后处理环节）
         self.validator = validator            # 写后验证器
         self.protagonist = protagonist        # 主角
         self.all_characters = all_characters  # 所有角色列表
+        self.quality_agent = quality_agent    # 质量评估 Agent（新增）
 
     def run(
         self,
@@ -242,10 +259,18 @@ class WritingPipeline:
             thread_context=thread_context,
         )
 
-        # ── 步骤5: 写手写章 ───────────────────────────────────────────────────
+        # ── 步骤 5: 写手写章 ───────────────────────────────────────────────────
         # 写手根据蓝图和节拍生成正文，同时输出写后结算表
         log("写手写章...")
         scene_summaries = _format_beats(chapter_outline)  # 格式化节拍为写手可读格式
+        
+        # 读取前一章最后 800 字，用于开头衔接
+        prev_chapter_tail = ""
+        if ch > 1:
+            prev_final = self.sm.read_final(ch - 1) or self.sm.read_draft(ch - 1)
+            if prev_final:
+                prev_chapter_tail = prev_final[-800:]
+        
         writer_output = self.writer.write_chapter(
             scene_summaries=scene_summaries,
             blueprint=blueprint,
@@ -254,6 +279,7 @@ class WritingPipeline:
             chapter_number=ch,
             target_words=adjusted_target_words,
             prior_summaries=prior_summaries,
+            prev_chapter_tail=prev_chapter_tail,
             chapter_title=title,
             pov_character=pov_character,
             thread_context=thread_context,
@@ -337,11 +363,32 @@ class WritingPipeline:
                 cross_thread_context=cross_thread_audit_ctx,
             )
 
-        # ── 步骤8: 保存最终稿 ─────────────────────────────────────────────────
-        self.sm.save_final(ch, current_content)
-        log(f"最终稿保存（{len(current_content)} 字）")
+        # ── 步骤8: 质量评估+修订（新增）─────────────────────────────────────────
+        # 六个核心维度 + 六大连贯性层次全面评估，自动修订
+        quality_report: Optional[QualityReport] = None
+        quality_score: Optional[int] = None
+        if self.quality_agent:
+            log("质量评估...")
+            prev_content = ""
+            if ch > 1:
+                prev_content = self.sm.read_draft(ch - 1) or ""
+            genre = getattr(ws.settings, "genre", "general")
+            current_content, quality_report = self.quality_agent.evaluate_chapter(
+                chapter_content=current_content,
+                chapter_number=ch,
+                genre=genre,
+                blueprint=blueprint,
+                truth_context=audit_truth_ctx,
+                settlement=writer_output.settlement,
+                prev_chapter_content=prev_content,
+                cross_thread_context=cross_thread_audit_ctx,
+                audit_report=audit_report,
+                auto_revise=True,
+            )
+            quality_score = quality_report.overall_score
+            log(f"质量评分：{quality_score}")
 
-        # ── 步骤9: 因果链提取 ─────────────────────────────────────────────────
+        # ── 步骤9: 因果链提取（前置到摘要生成之前）───────────────────────────────
         # 从正文中提取因果关系链，构建叙事逻辑图谱
         log("提取因果链...")
         causal_schemas = self.engine.extract_causal_links(
@@ -367,7 +414,7 @@ class WritingPipeline:
             self.sm.add_causal_link(cl)
         log(f"因果链：{len(causal_schemas)} 条")
 
-        # ── 步骤10: 生成章节摘要 ───────────────────────────────────────────────
+        # ── 步骤10: 生成章节摘要（最后处理环节，前置到保存之前）──────────────────
         # 生成章节摘要并注入 chapter_summaries.md，供后续章节参考
         log("生成章节摘要...")
         try:
@@ -390,16 +437,20 @@ class WritingPipeline:
             self.sm.append_truth(TruthFileKey.CHAPTER_SUMMARIES, fallback)
             log(f"摘要生成失败（{e}），使用 fallback")
 
-        # ── 步骤11: 应用结算表到世界状态 ───────────────────────────────────────
+        # ── 步骤11: 保存最终稿（最后保存步骤）───────────────────────────────────
+        self.sm.save_final(ch, current_content)
+        log(f"最终稿保存（{len(current_content)} 字）")
+
+        # ── 步骤12: 应用结算表到世界状态 ───────────────────────────────────────
         # 将写后结算表中的变化应用到世界状态
         log("应用结算表...")
         self._apply_settlement(ch, writer_output, blueprint)
 
-        # ── 步骤12: 记录时间轴事件 + 更新线程状态 ─────────────────────────────
+        # ── 步骤13: 记录时间轴事件 + 更新线程状态 ─────────────────────────────
         log("更新时间轴和线程状态...")
         self._record_timeline_events(ch, writer_output, blueprint, thread_id, ws)
 
-        # ── 步骤13: 更新当前章节 + current_state.md ───────────────────────────
+        # ── 步骤14: 更新当前章节 + current_state.md ───────────────────────────
         # 刷新世界状态并更新状态文档
         ws = self.sm.read_world_state()
         ws.current_chapter = ch
@@ -407,7 +458,7 @@ class WritingPipeline:
         self.sm.update_current_state_md()
         log("current_state.md 已更新")
 
-        # ── 步骤14: 更新线程状态 + 掉线预警 ───────────────────────────────────
+        # ── 步骤15: 更新线程状态 + 掉线预警 ───────────────────────────────────
         # 检测超过阈值章节未活跃的支线线程并告警
         dormancy_warnings: list[str] = []
         if ws.threads:
@@ -433,6 +484,8 @@ class WritingPipeline:
             thread_id=thread_id,
             pov_character_id=pov_character.id if pov_character else "",
             dormancy_warnings=dormancy_warnings,
+            quality_score=quality_score,
+            quality_report=quality_report,
         )
 
     # ── 多线程辅助方法 ────────────────────────────────────────────────────────

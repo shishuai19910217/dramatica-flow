@@ -2679,6 +2679,181 @@ def action_revise(book_id: str, chapter: int, mode: str = "spot-fix"):
         return {"ok": False, "stdout": "", "stderr": "修订超时"}
 
 
+# ── 质量评估 API ────────────────────────────────────────────────────────────
+
+class QualityAssessmentReq(BaseModel):
+    chapter: int
+    mode: Literal["full", "dimensions", "consistency", "genre"] = "full"
+
+
+@app.post("/api/books/{book_id}/quality/evaluate")
+async def quality_evaluate(book_id: str, req: QualityAssessmentReq):
+    """质量评估：六维评分 + 连贯性检测 + 类型适配度评估"""
+    _load_env()
+    sm = _sm(book_id)
+    
+    # 读取章节内容
+    content = sm.read_final(req.chapter) or sm.read_draft(req.chapter)
+    if not content:
+        raise HTTPException(404, f"第 {req.chapter} 章不存在")
+    
+    # 读取前一章内容（用于连贯性检测）
+    prev_content = ""
+    if req.chapter > 1:
+        prev_content = sm.read_final(req.chapter - 1) or sm.read_draft(req.chapter - 1) or ""
+    
+    # 读取配置
+    cfg = sm.read_config()
+    genre = cfg.get("genre", "general")
+    
+    try:
+        from core.agents import QualityAgent
+        from core.types.state import TruthFileKey
+        
+        # 创建 QualityAgent
+        llm = _create_llm(temperature=0.0, model_env="AUDITOR_MODEL")
+        quality_agent = QualityAgent(llm)
+        
+        # 读取必要的上下文
+        truth_ctx = sm.read_truth_bundle([
+            TruthFileKey.CURRENT_STATE, TruthFileKey.PENDING_HOOKS,
+            TruthFileKey.CHARACTER_MATRIX, TruthFileKey.CAUSAL_CHAIN,
+            TruthFileKey.CHAPTER_SUMMARIES,
+        ])
+        
+        from core.agents import ArchitectBlueprint, PreWriteChecklist, PostWriteSettlement
+        
+        blueprint = ArchitectBlueprint(
+            core_conflict="", hooks_to_advance=[], hooks_to_plant=[],
+            emotional_journey={}, chapter_end_hook="", pace_notes="",
+            pre_write_checklist=PreWriteChecklist([], [], [], [], ""),
+        )
+        
+        # 执行质量评估
+        report = await asyncio.to_thread(
+            quality_agent.evaluate_chapter,
+            chapter_content=content,
+            chapter_number=req.chapter,
+            genre=genre,
+            blueprint=blueprint,
+            truth_context=truth_ctx,
+            settlement=PostWriteSettlement([], [], [], [], []),
+            prev_chapter_content=prev_content[-800:] if prev_content else "",
+            auto_revise=False,
+        )
+        
+        # 如果是 tuple，取第二个元素（质量报告）
+        if isinstance(report, tuple):
+            revised_content, report = report
+        
+        # 转换为字典格式
+        report_dict = _dc_to_dict(report)
+        
+        # 持久化评估结果
+        quality_dir = sm.state_dir / "quality_results"
+        quality_dir.mkdir(parents=True, exist_ok=True)
+        quality_file = quality_dir / f"ch{req.chapter:04d}.json"
+        saved = {
+            "chapter": req.chapter,
+            "evaluated_at": datetime.now(timezone.utc).isoformat(),
+            **report_dict,
+        }
+        quality_file.write_text(json.dumps(saved, ensure_ascii=False, indent=2), encoding="utf-8")
+        
+        return {"ok": True, **report_dict}
+    
+    except Exception as e:
+        logging.error(f"质量评估失败: {e}", exc_info=True)
+        raise HTTPException(500, f"质量评估失败：{e}")
+
+
+class QualityReviseReq(BaseModel):
+    chapter: int
+
+
+@app.post("/api/books/{book_id}/quality/revise")
+async def quality_revise(book_id: str, req: QualityReviseReq):
+    """基于质量评估结果进行自动修订"""
+    chapter = req.chapter
+    _load_env()
+    sm = _sm(book_id)
+    
+    # 读取章节内容
+    content = sm.read_final(chapter) or sm.read_draft(chapter)
+    if not content:
+        raise HTTPException(404, f"第 {chapter} 章不存在")
+    
+    # 读取前一章内容
+    prev_content = ""
+    if chapter > 1:
+        prev_content = sm.read_final(chapter - 1) or sm.read_draft(chapter - 1) or ""
+    
+    # 读取配置
+    cfg = sm.read_config()
+    genre = cfg.get("genre", "general")
+    
+    try:
+        from core.agents import QualityAgent
+        from core.types.state import TruthFileKey
+        
+        # 创建 QualityAgent
+        llm = _create_llm(temperature=0.7, model_env="AUDITOR_MODEL")
+        quality_agent = QualityAgent(llm)
+        
+        # 读取必要的上下文
+        truth_ctx = sm.read_truth_bundle([
+            TruthFileKey.CURRENT_STATE, TruthFileKey.PENDING_HOOKS,
+            TruthFileKey.CHARACTER_MATRIX, TruthFileKey.CAUSAL_CHAIN,
+            TruthFileKey.CHAPTER_SUMMARIES,
+        ])
+        
+        from core.agents import ArchitectBlueprint, PreWriteChecklist, PostWriteSettlement
+        
+        blueprint = ArchitectBlueprint(
+            core_conflict="", hooks_to_advance=[], hooks_to_plant=[],
+            emotional_journey={}, chapter_end_hook="", pace_notes="",
+            pre_write_checklist=PreWriteChecklist([], [], [], [], ""),
+        )
+        
+        # 执行质量评估并修订
+        result = await asyncio.to_thread(
+            quality_agent.evaluate_chapter,
+            chapter_content=content,
+            chapter_number=chapter,
+            genre=genre,
+            blueprint=blueprint,
+            truth_context=truth_ctx,
+            settlement=PostWriteSettlement([], [], [], [], []),
+            prev_chapter_content=prev_content[-800:] if prev_content else "",
+            auto_revise=True,
+        )
+        
+        # 获取修订后的内容和报告
+        if isinstance(result, tuple):
+            revised_content, report = result
+        else:
+            revised_content = content
+            report = result
+        
+        # 保存修订后的内容为草稿
+        sm.save_draft(chapter, revised_content)
+        
+        
+        report_dict = _dc_to_dict(report)
+        
+        return {
+            "ok": True,
+            "chapter": chapter,
+            "revised": True,
+            "quality_report": report_dict,
+            "summary": f"修订完成，质量评分: {report_dict.get('overall_score', 0)}",
+        }
+    
+    except Exception as e:
+        logging.error(f"质量修订失败: {e}", exc_info=True)
+        raise HTTPException(500, f"质量修订失败：{e}")
+
+
 @app.get("/api/books/{book_id}/audit-results/{chapter}")
 def get_audit_result(book_id: str, chapter: int):
     """获取已保存的审计结果"""

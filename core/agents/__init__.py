@@ -1,23 +1,29 @@
 """
-四个核心 Agent：建筑师、写手、审计员、修订者
+核心 Agent 模块：建筑师、写手、审计员、修订者、摘要生成器、质量评估器
 修复：
 - ArchitectAgent 用 pydantic 校验，不再裸 json.loads
 - AuditorAgent blueprint 序列化改用 dataclasses.asdict
 - AuditIssue 增加 excerpt 字段（pipeline 需要）
 - WriterAgent 增加前情摘要注入参数
+- QualityAgent 新增：质量评估+修订一体化 Agent
 """
 from __future__ import annotations
 
 import dataclasses
 import json
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, Optional, List, Dict
 
 from pydantic import BaseModel, field_validator, Field
 
 from ..llm import LLMProvider, LLMMessage, parse_llm_json, with_retry
 from ..types.narrative import Character
 from ..narrative import ChapterOutlineSchema
+from ..types.quality import (
+    QualityIssue, DimensionScore, QualityReport, 
+    QualityReviseResult, GenreCriteria, GENRE_MATRIX,
+    QUALITY_DIMENSIONS, CONSISTENCY_LEVELS
+)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -254,6 +260,7 @@ class WriterAgent:
         chapter_number: int,
         target_words: int,
         prior_summaries: str = "",
+        prev_chapter_tail: str = "",
         chapter_title: str = "",
         pov_character: Character | None = None,
         thread_context: str = "",
@@ -273,6 +280,15 @@ class WriterAgent:
             lines = prior_summaries.strip().split("\n## ")
             recent = lines[-3:] if len(lines) > 3 else lines
             prior_ctx = f"\n### 前情回顾（最近章节）\n## {'## '.join(recent)}"
+
+        # 前一章结尾衔接
+        prev_section = ""
+        if prev_chapter_tail.strip():
+            prev_section = f"""
+### 前一章结尾（衔接用）
+{prev_chapter_tail}
+> 以上是上一章最后 800 字，本章开头必须自然衔接，保持场景、情绪、动作的连续性。
+"""
 
         # scene_summaries 已经是格式化好的节拍序列
         beats_str = scene_summaries
@@ -312,7 +328,7 @@ class WriterAgent:
         prompt = f"""\
 ## 写作任务：第 {chapter_number} 章{f'《{chapter_title}》' if chapter_title else ''}
 
-### 节拍序列（按顺序写完所有节拍）
+{prev_section}### 节拍序列（按顺序写完所有节拍）
 {scene_summaries}
 {pov_section}{thread_section}{f'''### 视角要求
 {pov_instruction.strip()}
@@ -859,3 +875,387 @@ class SummaryAgent:
             "---\n",
         ]
         return "".join(lines)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 6. 质量评估 Agent（新增）
+# 职责：对章节进行全面质量评估（六个核心维度 + 六大连贯性层次）+ 自动修订
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _DimensionScoreSchema(BaseModel):
+    dimension: str
+    score: int
+    max_score: int = 100
+    issues: List[dict] = Field(default_factory=list)
+    weight: float = 1.0
+
+
+class _QualityReportSchema(BaseModel):
+    chapter_number: int
+    overall_score: int
+    dimension_scores: List[_DimensionScoreSchema] = Field(default_factory=list)
+    consistency_scores: List[_DimensionScoreSchema] = Field(default_factory=list)
+    genre: str
+    genre_fit_score: int
+    improvement_suggestions: List[str] = Field(default_factory=list)
+
+
+class QualityAgent:
+    """
+    质量评估 Agent（内置修订功能）
+    
+    职责：
+        1. 对章节进行全面的质量评估（六个核心维度 + 六大连贯性层次）
+        2. 根据评估结果自动修订内容（参考 ReviserAgent）
+    
+    与其他 Agent 的协作关系：
+        - AuditorAgent：专注叙事质量审计（深度分析，输出问题列表）
+        - QualityAgent：专注综合质量评估 + 修订（输出质量分数 + 修订后内容）
+        - SummaryAgent：基于修订后的最终内容生成摘要（最后一个处理环节）
+    
+    架构一致性：遵循现有 Agent 模式（ArchitectAgent/WriterAgent/AuditorAgent）
+    """
+    
+    ReviseMode = Literal["spot-fix", "rewrite-section", "polish"]
+    
+    DIMENSIONS = ["情节", "人物", "设定", "语言", "阅读体验", "类型适配"]
+    
+    CONSISTENCY_LEVELS = ["时间", "空间", "逻辑", "情绪", "信息", "风格"]
+    
+    MAX_REVISE_ROUNDS = 2
+    
+    def __init__(self, llm: LLMProvider):
+        """
+        初始化质量评估 Agent
+        
+        Args:
+            llm: LLM 提供者（建议传入 temperature=0 的实例确保评分客观）
+        """
+        self.llm = llm
+    
+    def evaluate_chapter(
+        self,
+        chapter_content: str,
+        chapter_number: int,
+        genre: str,
+        blueprint: ArchitectBlueprint,
+        truth_context: str,
+        settlement: PostWriteSettlement,
+        prev_chapter_content: str = "",
+        cross_thread_context: str = "",
+        audit_report: Optional[AuditReport] = None,
+        auto_revise: bool = True,
+    ) -> tuple[str, QualityReport]:
+        """
+        执行章节质量评估（借鉴 AuditorAgent.audit_chapter() 参数设计）
+        
+        Args:
+            chapter_content: 章节正文
+            chapter_number: 章节编号
+            genre: 小说类型（悬疑/言情/科幻/恐怖/网文）
+            blueprint: 建筑师蓝图（评估参照标准）
+            truth_context: 真相文件上下文（设定/人物一致性）
+            settlement: 写后结算表（状态变化合理性检查）
+            prev_chapter_content: 上一章内容（连贯性检查）
+            cross_thread_context: 跨线程上下文（多线叙事一致性）
+            audit_report: 审计报告（可复用结果，避免重复分析）
+            auto_revise: 是否自动根据评估结果进行修订
+        
+        Returns:
+            Tuple[str, QualityReport]: (修订后的正文, 质量评估报告)
+        """
+        content_for_eval = chapter_content
+        if len(chapter_content) > 6000:
+            content_for_eval = chapter_content[:3000] + "\n\n...[中间省略]...\n\n" + chapter_content[-2000:]
+        
+        blueprint_summary = f"""\
+- 核心冲突：{blueprint.core_conflict}
+- 情感旅程：{blueprint.emotional_journey.get('start','')} → {blueprint.emotional_journey.get('end','')}
+- 必须推进伏笔：{blueprint.hooks_to_advance}
+- 计划埋下伏笔：{blueprint.hooks_to_plant}
+- 结尾钩子：{blueprint.chapter_end_hook}
+- 风险点：{blueprint.pre_write_checklist.risk_scan}
+- 登场角色：{blueprint.pre_write_checklist.active_characters}"""
+        
+        settlement_summary = f"""\
+- 资源变化：{settlement.resource_changes}
+- 新开伏笔：{settlement.new_hooks}
+- 回收伏笔：{settlement.resolved_hooks}
+- 关系变化：{settlement.relationship_changes}
+- 信息揭示：{settlement.info_revealed}
+- 位置变化：{settlement.character_position_changes}
+- 情感变化：{settlement.emotional_changes}"""
+        
+        audit_summary = ""
+        if audit_report:
+            audit_summary = f"""
+### 审计报告（参考）
+- 审计是否通过：{'通过' if audit_report.passed else '未通过'}
+- Critical 问题数：{audit_report.critical_count}
+- Warning 问题数：{audit_report.warning_count}
+"""
+        
+        genre_criteria = self._get_genre_criteria(genre)
+        
+        prompt = f"""\
+## 质量评估任务：第 {chapter_number} 章
+
+### 六个核心评判维度
+1. **情节维度**：开篇冲突建立情况、因果链条完整性、节奏张弛、结局呼应
+2. **人物维度**：主角欲望与缺陷、配角独立性（独立名字+动机+行动）、反派逻辑、人物弧光
+3. **设定维度**：设定新意（与常见设定对比）、逻辑自洽（规则一致性）、规则与代价、服务故事
+4. **语言维度**：视觉描写丰富度、感官细节密度、比喻新颖度、句式变化
+5. **阅读体验维度**：结尾钩子强度、信息密度、悬念设置、情感共鸣
+6. **类型适配维度**：{', '.join(genre_criteria.criteria)}
+
+### 六大连贯性层次
+1. **时间连贯性**：时间线清晰、倒叙/插叙标记、时间跳跃说明
+2. **空间连贯性**：移动交代、场景切换过渡、空间关系合理
+3. **逻辑连贯性**：因果完整性、动机合理性、规则一致性、能力成长过程
+4. **情绪连贯性**：情绪反应匹配、情绪转变过渡、性格一致性
+5. **信息连贯性**：能力获得过程、信息来源交代、物品连续性
+6. **风格连贯性**：语言风格统一、叙事视角统一、命名规则统一
+
+### 类型特征矩阵（{genre}）
+{chr(10).join(f"- {k}: {v*100:.0f}%" for k, v in genre_criteria.weights.items())}
+
+### 章节正文
+{content_for_eval}
+
+### 写前蓝图
+{blueprint_summary}
+
+{audit_summary}
+### 写后结算表
+{settlement_summary}
+
+### 真相文件（上下文参考）
+{truth_context[:2000]}
+
+### 上一章内容（连贯性参考）
+{prev_chapter_content[:1000] if prev_chapter_content else "（无）"}
+
+### 评判标准
+- critical：严重影响叙事质量的问题（如因果断裂、人设崩塌、规则冲突）
+- warning：需要改进但不影响核心的问题（如节奏问题、语言瑕疵）
+- info：优化建议（非问题）
+
+### 输出格式（JSON）
+{{
+  "chapter_number": {chapter_number},
+  "overall_score": 0-100,
+  "dimension_scores": [
+    {{"dimension": "情节", "score": 85, "issues": [
+      {{"severity": "warning", "description": "节奏稍显拖沓", "suggestion": "增加紧张感"}}
+    ]}}
+  ],
+  "consistency_scores": [
+    {{"dimension": "逻辑", "score": 90, "issues": []}}
+  ],
+  "genre": "{genre}",
+  "genre_fit_score": 80,
+  "improvement_suggestions": ["建议1", "建议2"]
+}}
+
+只输出 JSON，不要任何说明文字。"""
+        
+        def _call() -> tuple[str, QualityReport]:
+            resp = self.llm.complete([
+                LLMMessage("system", "你是专业的小说质量评估师，输出严格符合 JSON 格式的评估报告，不输出任何说明文字。"),
+                LLMMessage("user", prompt),
+            ])
+            parsed = parse_llm_json(resp.content, _QualityReportSchema, "evaluate_chapter")
+            
+            dimension_scores = []
+            for ds in parsed.dimension_scores:
+                issues = []
+                for issue in ds.issues:
+                    issues.append(QualityIssue(
+                        severity=issue.get("severity", "info"),
+                        description=issue.get("description", ""),
+                        location=issue.get("location"),
+                        suggestion=issue.get("suggestion"),
+                    ))
+                dimension_scores.append(DimensionScore(
+                    dimension=ds.dimension,
+                    score=ds.score,
+                    max_score=ds.max_score,
+                    issues=issues,
+                    weight=ds.weight,
+                ))
+            
+            consistency_scores = []
+            for cs in parsed.consistency_scores:
+                issues = []
+                for issue in cs.issues:
+                    issues.append(QualityIssue(
+                        severity=issue.get("severity", "info"),
+                        description=issue.get("description", ""),
+                        location=issue.get("location"),
+                        suggestion=issue.get("suggestion"),
+                    ))
+                consistency_scores.append(DimensionScore(
+                    dimension=cs.dimension,
+                    score=cs.score,
+                    max_score=cs.max_score,
+                    issues=issues,
+                    weight=cs.weight,
+                ))
+            
+            quality_report = QualityReport(
+                chapter_number=parsed.chapter_number,
+                overall_score=parsed.overall_score,
+                dimension_scores=dimension_scores,
+                consistency_scores=consistency_scores,
+                genre=parsed.genre,
+                genre_fit_score=parsed.genre_fit_score,
+                improvement_suggestions=parsed.improvement_suggestions,
+            )
+            
+            return chapter_content, quality_report
+        
+        final_content, quality_report = with_retry(_call)
+        
+        if auto_revise and not self._is_passed(quality_report):
+            revise_result = self.revise(
+                content=final_content,
+                quality_report=quality_report,
+                mode="spot-fix",
+            )
+            final_content = revise_result.content
+        
+        return final_content, quality_report
+    
+    def revise(
+        self,
+        content: str,
+        quality_report: QualityReport,
+        mode: ReviseMode = "spot-fix",
+    ) -> QualityReviseResult:
+        """
+        根据质量评估报告修订内容（参考 ReviserAgent.revise()）
+        
+        Args:
+            content: 待修订的正文
+            quality_report: 质量评估报告
+            mode: 修订模式
+                - spot-fix: 只修改有问题的句子/段落，其余正文一字不动
+                - rewrite-section: 重写包含问题的段落
+                - polish: 在不改变情节的前提下提升文笔流畅度
+        
+        Returns:
+            QualityReviseResult: 修订结果
+        """
+        issues = []
+        for dim_score in quality_report.dimension_scores:
+            for issue in dim_score.issues:
+                if issue.severity in ["critical", "warning"]:
+                    issues.append(issue)
+        
+        for cons_score in quality_report.consistency_scores:
+            for issue in cons_score.issues:
+                if issue.severity in ["critical", "warning"]:
+                    issues.append(issue)
+        
+        issues.sort(key=lambda x: 0 if x.severity == "critical" else 1)
+        
+        if not issues:
+            return QualityReviseResult(
+                content=content,
+                change_log=["无需要修复的问题"],
+                revised_issues=[],
+            )
+        
+        prompt = self._build_revise_prompt(content, issues, mode)
+        
+        def _call() -> QualityReviseResult:
+            resp = self.llm.complete([
+                LLMMessage("system", self._get_revise_system_prompt(mode)),
+                LLMMessage("user", prompt),
+            ])
+            result = self._parse_revise_result(resp.content)
+            return QualityReviseResult(
+                content=result["content"],
+                change_log=result["change_log"],
+                revised_issues=result["revised_issues"],
+            )
+        
+        return with_retry(_call)
+    
+    def _build_revise_prompt(
+        self,
+        content: str,
+        issues: List[QualityIssue],
+        mode: ReviseMode,
+    ) -> str:
+        issue_lines = []
+        for i, issue in enumerate(issues):
+            line = f"{i+1}. [{issue.severity.upper()}] {issue.description}"
+            if issue.location:
+                line += f"\n   位置：{issue.location}"
+            if issue.suggestion:
+                line += f"\n   建议：{issue.suggestion}"
+            issue_lines.append(line)
+        
+        mode_instructions = {
+            "spot-fix": "只修改有问题的句子/段落，其余正文一字不动",
+            "rewrite-section": "重写包含问题的段落（前后各保留一段作为锚点），保持整体情节不变",
+            "polish": "在不改变情节的前提下提升文笔流畅度，禁止增删段落",
+        }
+        
+        return f"""\
+## 修订任务
+模式：{mode}
+规则：{mode_instructions[mode]}
+硬约束：不得引入新情节，不得修改角色名，不得改变情节走向。
+
+## 需修订的问题
+{chr(10).join(issue_lines)}
+
+## 原文
+{content}
+
+---
+直接输出修订后的完整正文（不要任何前言），然后输出：
+{chr(10)}
+["改动说明1", "改动说明2", ...]"""
+    
+    def _get_revise_system_prompt(self, mode: ReviseMode) -> str:
+        return f"你是精准的小说修订者，模式：{mode}。直接输出修订后正文，不要任何前言。"
+    
+    def _parse_revise_result(self, response: str) -> dict:
+        parts = response.split("\n\n", 1)
+        content = parts[0].strip()
+        change_log = []
+        revised_issues = []
+        
+        if len(parts) > 1:
+            try:
+                change_log = eval(parts[1].strip())
+            except Exception:
+                change_log = [parts[1].strip()[:200]]
+        
+        return {
+            "content": content,
+            "change_log": change_log,
+            "revised_issues": revised_issues,
+        }
+    
+    def _is_passed(self, quality_report: QualityReport) -> bool:
+        """判断评估是否通过（无 critical 问题）"""
+        for dim_score in quality_report.dimension_scores:
+            for issue in dim_score.issues:
+                if issue.severity == "critical":
+                    return False
+        for cons_score in quality_report.consistency_scores:
+            for issue in cons_score.issues:
+                if issue.severity == "critical":
+                    return False
+        return True
+    
+    def _get_genre_criteria(self, genre: str) -> GenreCriteria:
+        """获取类型特征矩阵"""
+        for gc in GENRE_MATRIX:
+            if genre in gc.genre or gc.genre in genre:
+                return gc
+        return GENRE_MATRIX[0]  # 默认返回悬疑/推理
