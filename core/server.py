@@ -2773,7 +2773,7 @@ class QualityReviseReq(BaseModel):
 
 @app.post("/api/books/{book_id}/quality/revise")
 async def quality_revise(book_id: str, req: QualityReviseReq):
-    """基于质量评估结果进行自动修订"""
+    """基于质量评估结果进行自动修订（含状态更新）"""
     chapter = req.chapter
     _load_env()
     sm = _sm(book_id)
@@ -2793,8 +2793,9 @@ async def quality_revise(book_id: str, req: QualityReviseReq):
     genre = cfg.get("genre", "general")
     
     try:
-        from core.agents import QualityAgent
+        from core.agents import QualityAgent, SummaryAgent
         from core.types.state import TruthFileKey
+        from core.narrative import NarrativeEngine
         
         # 创建 QualityAgent
         llm = _create_llm(temperature=0.7, model_env="AUDITOR_MODEL")
@@ -2835,9 +2836,62 @@ async def quality_revise(book_id: str, req: QualityReviseReq):
             revised_content = content
             report = result
         
-        # 保存修订后的内容为草稿
-        sm.save_draft(chapter, revised_content)
+        # ── 状态更新（步骤9-15） ────────────────────────────────────────────────
         
+        # 1. 重新提取因果链
+        engine = NarrativeEngine(_llm())
+        causal_links = await asyncio.to_thread(
+            engine.extract_causal_relations, revised_content, chapter
+        )
+        causal_chain = sm.read_truth(TruthFileKey.CAUSAL_CHAIN) or ""
+        import re
+        if f"第{chapter}章因果链" in causal_chain:
+            causal_chain = re.sub(
+                rf"\n\n## 第{chapter}章因果链.*?(?=\n\n## 第|$)",
+                f"\n\n## 第{chapter}章因果链\n{causal_links}",
+                causal_chain, flags=re.DOTALL
+            )
+        else:
+            causal_chain = f"{causal_chain}\n\n## 第{chapter}章因果链\n{causal_links}"
+        sm.write_truth(TruthFileKey.CAUSAL_CHAIN, causal_chain.strip())
+        
+        # 2. 重新生成章节摘要
+        full_summaries = sm.read_truth(TruthFileKey.CHAPTER_SUMMARIES) or ""
+        prior_sections = re.split(r'\n(?=## 第\d+章)', full_summaries)
+        recent_summaries = "\n".join(prior_sections[-3:]) if len(prior_sections) > 3 else full_summaries
+        
+        character_matrix = sm.read_truth(TruthFileKey.CHARACTER_MATRIX) or ""
+        chapter_summary = await asyncio.to_thread(
+            SummaryAgent(_llm()).summarize_chapter,
+            chapter_content=revised_content,
+            chapter_number=chapter,
+            prev_summary=recent_summaries,
+            causal_chain=causal_links,
+            character_matrix=character_matrix,
+        )
+        
+        # 3. 更新章节摘要索引（替换旧摘要）
+        if f"第{chapter}章" in full_summaries:
+            full_summaries = re.sub(
+                rf"\n\n## 第{chapter}章.*?(?=\n\n## 第|$)",
+                f"\n\n## 第{chapter}章\n{chapter_summary}",
+                full_summaries, flags=re.DOTALL
+            )
+        else:
+            full_summaries = f"{full_summaries}\n\n## 第{chapter}章\n{chapter_summary}"
+        sm.write_truth(TruthFileKey.CHAPTER_SUMMARIES, full_summaries.strip())
+        
+        # 4. 更新世界状态
+        try:
+            ws = sm.read_world_state()
+            ws.current_chapter = chapter
+            sm.write_world_state(ws)
+            sm.update_current_state_md()
+        except Exception:
+            pass  # 世界状态更新失败不阻塞
+        
+        # 5. 保存修订后的内容为草稿
+        sm.save_final(chapter, revised_content)
         
         report_dict = _dc_to_dict(report)
         
@@ -3522,6 +3576,8 @@ async def ai_generate_chapter_content(book_id: str, req: ChapterContentReq):
 
     # ── 写后状态更新（让下一章有记忆） ──────────────────────────
     try:
+        import re
+        
         # 1. 生成章节摘要
         summary_prompt = f"""请为以下小说章节生成一份简明摘要（200-300字），包含：
 - 本章核心事件（1-2句）
@@ -3537,8 +3593,18 @@ async def ai_generate_chapter_content(book_id: str, req: ChapterContentReq):
             LLMMessage("user", summary_prompt),
         ]).content)
 
-        summary_md = f"\n## 第 {req.chapter_number} 章《{detailed.get('title', '')}》\n{summary_resp.strip()}\n---\n"
-        sm.append_truth(TruthFileKey.CHAPTER_SUMMARIES, summary_md)
+        # 检查是否已存在该章节摘要，存在则替换，否则追加
+        full_summaries = sm.read_truth(TruthFileKey.CHAPTER_SUMMARIES) or ""
+        chapter_title = detailed.get('title', '')
+        summary_md = f"\n## 第 {req.chapter_number} 章《{chapter_title}》\n{summary_resp.strip()}\n---\n"
+        
+        # 使用正则表达式替换已存在的章节摘要
+        chapter_pattern = rf"\n## 第 {req.chapter_number} 章.*?(?=\n## 第|$)"
+        if re.search(chapter_pattern, full_summaries, re.DOTALL):
+            full_summaries = re.sub(chapter_pattern, summary_md, full_summaries, flags=re.DOTALL)
+        else:
+            full_summaries = f"{full_summaries}{summary_md}"
+        sm.write_truth(TruthFileKey.CHAPTER_SUMMARIES, full_summaries.strip())
 
         # 2. 提取简单因果链
         causal_prompt = f"""从以下章节正文中提取因果关系，每条格式为：
@@ -3553,9 +3619,17 @@ async def ai_generate_chapter_content(book_id: str, req: ChapterContentReq):
             LLMMessage("user", causal_prompt),
         ]).content)
 
+        # 检查是否已存在该章节因果链，存在则替换，否则追加
         if causal_resp.strip():
+            causal_chain = sm.read_truth(TruthFileKey.CAUSAL_CHAIN) or ""
             causal_entry = f"\n### 第 {req.chapter_number} 章\n{causal_resp.strip()}\n"
-            sm.append_truth(TruthFileKey.CAUSAL_CHAIN, causal_entry)
+            
+            causal_pattern = rf"\n### 第 {req.chapter_number} 章.*?(?=\n### 第|$)"
+            if re.search(causal_pattern, causal_chain, re.DOTALL):
+                causal_chain = re.sub(causal_pattern, causal_entry, causal_chain, flags=re.DOTALL)
+            else:
+                causal_chain = f"{causal_chain}{causal_entry}"
+            sm.write_truth(TruthFileKey.CAUSAL_CHAIN, causal_chain.strip())
 
         # 3. 更新世界状态中的当前章节号
         try:

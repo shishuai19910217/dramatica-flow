@@ -270,7 +270,7 @@ class WritingPipeline:
             prev_final = self.sm.read_final(ch - 1) or self.sm.read_draft(ch - 1)
             if prev_final:
                 prev_chapter_tail = prev_final[-800:]
-        
+        log(f"前一章尾部：{prev_chapter_tail}")
         writer_output = self.writer.write_chapter(
             scene_summaries=scene_summaries,
             blueprint=blueprint,
@@ -417,6 +417,7 @@ class WritingPipeline:
         # ── 步骤10: 生成章节摘要（最后处理环节，前置到保存之前）──────────────────
         # 生成章节摘要并注入 chapter_summaries.md，供后续章节参考
         log("生成章节摘要...")
+        import re
         try:
             summary = self.summary_agent.generate_summary(
                 chapter_content=current_content,
@@ -425,17 +426,24 @@ class WritingPipeline:
                 settlement=writer_output.settlement,
             )
             summary_md = self.summary_agent.format_for_truth_file(summary)
-            self.sm.append_truth(TruthFileKey.CHAPTER_SUMMARIES, summary_md)
         except Exception as e:
             # 摘要生成失败不阻塞主线程，使用 fallback
-            fallback = (
+            summary_md = (
                 f"\n## 第 {ch} 章《{title}》\n"
                 f"{chapter_outline.summary}\n"
                 f"- 审计：{'通过' if audit_report.passed else '未通过'}"
                 f"，修订 {revision_rounds} 轮\n---\n"
             )
-            self.sm.append_truth(TruthFileKey.CHAPTER_SUMMARIES, fallback)
             log(f"摘要生成失败（{e}），使用 fallback")
+        
+        # 检查是否已存在该章节摘要，存在则替换，否则追加
+        full_summaries = self.sm.read_truth(TruthFileKey.CHAPTER_SUMMARIES) or ""
+        chapter_pattern = rf"\n## 第 {ch} 章.*?(?=\n## 第|$)"
+        if re.search(chapter_pattern, full_summaries, re.DOTALL):
+            full_summaries = re.sub(chapter_pattern, summary_md, full_summaries, flags=re.DOTALL)
+        else:
+            full_summaries = f"{full_summaries}{summary_md}"
+        self.sm.write_truth(TruthFileKey.CHAPTER_SUMMARIES, full_summaries.strip())
 
         # ── 步骤11: 保存最终稿（最后保存步骤）───────────────────────────────────
         self.sm.save_final(ch, current_content)

@@ -159,7 +159,7 @@ def main():
 
     # ── 9. 写第一章 ───────────────────────────────────────────────────────────
     print("\n开始写第一章...")
-    result = pipeline.run(chapter_outlines[0])
+    result = pipeline.run(chapter_outlines[0], verbose=True)
 
     print(f"\n{'='*50}")
     print(f"第 {result.chapter_number} 章写作完成")

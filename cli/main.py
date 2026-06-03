@@ -310,7 +310,7 @@ def write(
             console.print(f"[yellow]全部 {len(all_outlines)} 章已写完[/yellow]"); break
         co = all_outlines[ch_num - 1]
         console.print(f"\n[bold]第 {ch_num} 章《{co.title}》[/bold]")
-        result = pipeline.run(co)
+        result = pipeline.run(co, verbose=True)
         ok = "[green]✓[/green]" if result.audit_report.passed else "[yellow]⚠[/yellow]"
         console.print(
             f"  {ok} 审计{'通过' if result.audit_report.passed else '未通过'}"
@@ -380,10 +380,11 @@ def revise(
                                 help="spot-fix / rewrite-section / polish"),
     project: str = typer.Option(".", "--project", "-p"),
 ):
-    """手动修订指定章节"""
+    """手动修订指定章节（含状态更新）"""
     from core.state import StateManager
-    from core.agents import AuditorAgent, ReviserAgent, ArchitectBlueprint, PreWriteChecklist, PostWriteSettlement
+    from core.agents import AuditorAgent, ReviserAgent, ArchitectBlueprint, PreWriteChecklist, PostWriteSettlement, SummaryAgent
     from core.types.state import TruthFileKey
+    from core.narrative import NarrativeEngine
 
     sm = StateManager(project, book_id)
     content = sm.read_final(chapter) or sm.read_draft(chapter)
@@ -405,7 +406,64 @@ def revise(
 
     console.print(f"发现 {report.critical_count} critical，修订模式：{mode}")
     result = ReviserAgent(_llm()).revise(content, report.issues, mode=mode)  # type: ignore
-    sm.save_final(chapter, result.content)
+    revised_content = result.content
+
+    # ── 状态更新（步骤9-15） ────────────────────────────────────────────────────
+    console.print("[blue]更新故事状态...[/blue]")
+    
+    # 1. 重新提取因果链
+    engine = NarrativeEngine(_llm())
+    causal_links = engine.extract_causal_relations(revised_content, chapter)
+    causal_chain = sm.read_truth(TruthFileKey.CAUSAL_CHAIN) or ""
+    # 替换旧的第N章因果链（而不是追加）
+    import re
+    causal_chain = re.sub(
+        rf"\n\n## 第{chapter}章因果链.*?(?=\n\n## 第|$)",
+        f"\n\n## 第{chapter}章因果链\n{causal_links}",
+        causal_chain, flags=re.DOTALL
+    ) if f"第{chapter}章因果链" in causal_chain else f"{causal_chain}\n\n## 第{chapter}章因果链\n{causal_links}"
+    sm.write_truth(TruthFileKey.CAUSAL_CHAIN, causal_chain.strip())
+    console.print(f"  ✓ 因果链已更新")
+
+    # 2. 重新生成章节摘要
+    full_summaries = sm.read_truth(TruthFileKey.CHAPTER_SUMMARIES) or ""
+    prior_sections = re.split(r'\n(?=## 第\d+章)', full_summaries)
+    recent_summaries = "\n".join(prior_sections[-3:]) if len(prior_sections) > 3 else full_summaries
+    
+    character_matrix = sm.read_truth(TruthFileKey.CHARACTER_MATRIX) or ""
+    chapter_summary = SummaryAgent(_llm()).summarize_chapter(
+        chapter_content=revised_content,
+        chapter_number=chapter,
+        prev_summary=recent_summaries,
+        causal_chain=causal_links,
+        character_matrix=character_matrix,
+    )
+
+    # 3. 更新章节摘要索引（替换旧摘要）
+    if f"第{chapter}章" in full_summaries:
+        full_summaries = re.sub(
+            rf"\n\n## 第{chapter}章.*?(?=\n\n## 第|$)",
+            f"\n\n## 第{chapter}章\n{chapter_summary}",
+            full_summaries, flags=re.DOTALL
+        )
+    else:
+        full_summaries = f"{full_summaries}\n\n## 第{chapter}章\n{chapter_summary}"
+    sm.write_truth(TruthFileKey.CHAPTER_SUMMARIES, full_summaries.strip())
+    console.print(f"  ✓ 章节摘要已更新")
+
+    # 4. 更新世界状态
+    try:
+        ws = sm.read_world_state()
+        ws.current_chapter = chapter
+        sm.write_world_state(ws)
+        sm.update_current_state_md()
+        console.print(f"  ✓ 世界状态已更新")
+    except Exception as e:
+        console.print(f"  ⚠ 世界状态更新失败: {e}")
+
+    # 5. 保存修订后的正文
+    sm.save_final(chapter, revised_content)
+    
     console.print(f"[green]✓ 修订完成，改动 {len(result.change_log)} 处[/green]")
 
 
