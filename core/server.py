@@ -2669,14 +2669,56 @@ def action_revise(book_id: str, chapter: int, mode: str = "spot-fix"):
     """手动修订指定章节"""
     _load_env()
     try:
-        result = subprocess.run(
-            [sys.executable, "-m", "cli.main", "revise", book_id, str(chapter), "--mode", mode],
-            capture_output=True, text=True, timeout=600, encoding="utf-8", errors="replace",
+        import sys
+        from subprocess import Popen, PIPE, STDOUT
+        import threading
+        
+        cmd = [sys.executable, "-m", "cli.main", "revise", book_id, str(chapter), "--mode", mode]
+        
+        process = Popen(
+            cmd,
+            stdout=PIPE,
+            stderr=STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
             env={**os.environ},
+            bufsize=1,
+            universal_newlines=True
         )
-        return {"ok": result.returncode == 0, "stdout": result.stdout[-2000:], "stderr": result.stderr[-1000:]}
-    except subprocess.TimeoutExpired:
-        return {"ok": False, "stdout": "", "stderr": "修订超时"}
+        
+        stdout_output = []
+        
+        def read_output():
+            try:
+                for line in process.stdout:
+                    print(line, end="")
+                    stdout_output.append(line)
+            except Exception as e:
+                pass
+        
+        read_thread = threading.Thread(target=read_output)
+        read_thread.daemon = True
+        read_thread.start()
+        
+        timeout = 600  # 10分钟
+        try:
+            process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            read_thread.join(timeout=1)
+            return {"ok": False, "stdout": "", "stderr": "修订超时"}
+        
+        read_thread.join(timeout=5)
+        
+        stdout_str = "".join(stdout_output)
+        stderr_str = ""
+        
+        return {"ok": process.returncode == 0, "stdout": stdout_str[-2000:], "stderr": stderr_str[-1000:]}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {"ok": False, "stdout": "", "stderr": f"执行出错：{str(e)}"}
 
 
 # ── 质量评估 API ────────────────────────────────────────────────────────────
@@ -3578,25 +3620,41 @@ async def ai_generate_chapter_content(book_id: str, req: ChapterContentReq):
     try:
         import re
         
-        # 1. 生成章节摘要
-        summary_prompt = f"""请为以下小说章节生成一份简明摘要（200-300字），包含：
-- 本章核心事件（1-2句）
-- 角色情感变化
-- 重要伏笔推进或埋设
-- 章末状态（为下一章铺垫）
+        # 1. 生成章节摘要并提取伏笔回收信息
+        summary_prompt = f"""请为以下小说章节生成一份简明摘要（200-300字），并分析伏笔回收情况。输出格式：
+
+【章节摘要】
+（200-300字的章节摘要）
+
+【伏笔回收】
+列出本章回收的伏笔描述（一句话描述，用顿号分隔），如果没有回收任何伏笔则写"无"。
 
 章节正文：
 {content[:4000]}"""
 
         summary_resp = await asyncio.to_thread(lambda: llm.complete([
-            LLMMessage("system", "你是小说编辑助手，生成简洁客观的章节摘要。"),
+            LLMMessage("system", "你是小说编辑助手，生成简洁客观的章节摘要并分析伏笔回收情况。"),
             LLMMessage("user", summary_prompt),
         ]).content)
+
+        # 解析摘要和伏笔回收
+        summary_text = ""
+        resolved_hooks = []
+        
+        if "【章节摘要】" in summary_resp:
+            if "【伏笔回收】" in summary_resp:
+                parts = summary_resp.split("【伏笔回收】")
+                summary_text = parts[0].replace("【章节摘要】", "").strip()
+                hooks_part = parts[1].strip()
+                if hooks_part and hooks_part != "无":
+                    resolved_hooks = [h.strip() for h in hooks_part.split("、") if h.strip()]
+            else:
+                summary_text = summary_resp.replace("【章节摘要】", "").strip()
 
         # 检查是否已存在该章节摘要，存在则替换，否则追加
         full_summaries = sm.read_truth(TruthFileKey.CHAPTER_SUMMARIES) or ""
         chapter_title = detailed.get('title', '')
-        summary_md = f"\n## 第 {req.chapter_number} 章《{chapter_title}》\n{summary_resp.strip()}\n---\n"
+        summary_md = f"\n## 第 {req.chapter_number} 章《{chapter_title}》\n{summary_text.strip()}\n---\n"
         
         # 使用正则表达式替换已存在的章节摘要
         chapter_pattern = rf"\n## 第 {req.chapter_number} 章.*?(?=\n## 第|$)"
@@ -3606,7 +3664,25 @@ async def ai_generate_chapter_content(book_id: str, req: ChapterContentReq):
             full_summaries = f"{full_summaries}{summary_md}"
         sm.write_truth(TruthFileKey.CHAPTER_SUMMARIES, full_summaries.strip())
 
-        # 2. 提取简单因果链
+        # 2. 回收伏笔（根据分析结果）
+        resolved_count = 0
+        if resolved_hooks:
+            ws = sm.read_world_state()
+            for h_desc in resolved_hooks:
+                h_desc_stripped = str(h_desc).strip()
+                if not h_desc_stripped:
+                    continue
+                for hook in ws.pending_hooks:
+                    if hook.status == HookStatus.OPEN and (h_desc_stripped.lower() in hook.description.lower() or hook.description.lower() in h_desc_stripped.lower()):
+                        hook.status = HookStatus.RESOLVED
+                        hook.resolved_in_chapter = req.chapter_number
+                        resolved_count += 1
+            sm.write_world_state(ws)
+            if resolved_count > 0:
+                import logging
+                logging.info(f"[chapter-content] 第 {req.chapter_number} 章回收 {resolved_count} 个伏笔")
+
+        # 3. 提取简单因果链
         causal_prompt = f"""从以下章节正文中提取因果关系，每条格式为：
 因为 [原因]，发生了 [事件]，导致 [后果]
 只列出最重要的 2-5 条。
@@ -3652,14 +3728,63 @@ def action_write(book_id: str, count: int = 1):
     from dotenv import load_dotenv
     load_dotenv(ENV_PATH, override=True)
     try:
-        result = subprocess.run(
-            [sys.executable, "-m", "cli.main", "write", book_id, "--count", str(count)],
-            capture_output=True, text=True, timeout=1200, encoding="utf-8", errors="replace",
+        import sys
+        from subprocess import Popen, PIPE, STDOUT
+        import threading
+        import queue
+        
+        cmd = [sys.executable, "-m", "cli.main", "write", book_id, "--count", str(count)]
+        
+        # 使用 Popen 实时输出到控制台，同时捕获输出
+        process = Popen(
+            cmd,
+            stdout=PIPE,
+            stderr=STDOUT,  # 将 stderr 合并到 stdout
+            text=True,
+            encoding="utf-8",
+            errors="replace",
             env={**os.environ},
+            bufsize=1,
+            universal_newlines=True
         )
-        return {"ok": result.returncode == 0, "stdout": result.stdout[-2000:], "stderr": result.stderr[-1000:]}
-    except subprocess.TimeoutExpired:
-        return {"ok": False, "stdout": "", "stderr": "写作超时（20分钟），请检查命令行日志"}
+        
+        stdout_output = []
+        output_queue = queue.Queue()
+        
+        # 定义读取线程函数
+        def read_output():
+            try:
+                for line in process.stdout:
+                    print(line, end="")  # 输出到控制台
+                    stdout_output.append(line)
+            except Exception as e:
+                pass
+        
+        # 启动读取线程
+        read_thread = threading.Thread(target=read_output)
+        read_thread.daemon = True
+        read_thread.start()
+        
+        # 等待进程完成，带超时
+        timeout = 1200  # 20分钟
+        try:
+            process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            read_thread.join(timeout=1)
+            return {"ok": False, "stdout": "", "stderr": "写作超时（20分钟），请检查命令行日志"}
+        
+        # 等待读取线程完成
+        read_thread.join(timeout=5)
+        
+        stdout_str = "".join(stdout_output)
+        stderr_str = ""  # stderr 已合并到 stdout
+        
+        return {"ok": process.returncode == 0, "stdout": stdout_str[-2000:], "stderr": stderr_str[-1000:]}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {"ok": False, "stdout": "", "stderr": f"执行出错：{str(e)}"}
 
 
 @app.post("/api/action/audit")
@@ -3667,14 +3792,56 @@ def action_audit(book_id: str, chapter: int):
     from dotenv import load_dotenv
     load_dotenv(ENV_PATH, override=True)
     try:
-        result = subprocess.run(
-            [sys.executable, "-m", "cli.main", "audit", book_id, str(chapter)],
-            capture_output=True, text=True, timeout=600, encoding="utf-8", errors="replace",
+        import sys
+        from subprocess import Popen, PIPE, STDOUT
+        import threading
+        
+        cmd = [sys.executable, "-m", "cli.main", "audit", book_id, str(chapter)]
+        
+        process = Popen(
+            cmd,
+            stdout=PIPE,
+            stderr=STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
             env={**os.environ},
+            bufsize=1,
+            universal_newlines=True
         )
-        return {"ok": result.returncode == 0, "stdout": result.stdout[-2000:], "stderr": result.stderr[-1000:]}
-    except subprocess.TimeoutExpired:
-        return {"ok": False, "stdout": "", "stderr": "审计超时"}
+        
+        stdout_output = []
+        
+        def read_output():
+            try:
+                for line in process.stdout:
+                    print(line, end="")
+                    stdout_output.append(line)
+            except Exception as e:
+                pass
+        
+        read_thread = threading.Thread(target=read_output)
+        read_thread.daemon = True
+        read_thread.start()
+        
+        timeout = 600  # 10分钟
+        try:
+            process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            read_thread.join(timeout=1)
+            return {"ok": False, "stdout": "", "stderr": "审计超时"}
+        
+        read_thread.join(timeout=5)
+        
+        stdout_str = "".join(stdout_output)
+        stderr_str = ""
+        
+        return {"ok": process.returncode == 0, "stdout": stdout_str[-2000:], "stderr": stderr_str[-1000:]}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {"ok": False, "stdout": "", "stderr": f"执行出错：{str(e)}"}
 
 
 class ExportRequest(BaseModel):
@@ -3686,13 +3853,53 @@ def action_export(req: ExportRequest):
     from dotenv import load_dotenv
     load_dotenv(ENV_PATH, override=True)
     try:
+        import sys
+        from subprocess import Popen, PIPE, STDOUT
+        import threading
+        
         cmd = [sys.executable, "-m", "cli.main", "export", req.book_id]
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=120, encoding="utf-8", errors="replace",
+        
+        process = Popen(
+            cmd,
+            stdout=PIPE,
+            stderr=STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
             env={**os.environ},
+            bufsize=1,
+            universal_newlines=True
         )
+        
+        stdout_output = []
+        
+        def read_output():
+            try:
+                for line in process.stdout:
+                    print(line, end="")
+                    stdout_output.append(line)
+            except Exception as e:
+                pass
+        
+        read_thread = threading.Thread(target=read_output)
+        read_thread.daemon = True
+        read_thread.start()
+        
+        timeout = 120  # 2分钟
+        try:
+            process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            read_thread.join(timeout=1)
+            return {"ok": False, "stdout": "", "stderr": "导出超时"}
+        
+        read_thread.join(timeout=5)
+        
+        stdout_str = "".join(stdout_output)
+        stderr_str = ""
+        
         # 如果需要 txt 格式，将 md 转换为 txt
-        if req.fmt == "txt" and result.returncode == 0:
+        if req.fmt == "txt" and process.returncode == 0:
             from core.state import StateManager
             sm = StateManager(".", req.book_id)
             config = sm.read_config()
@@ -3700,10 +3907,13 @@ def action_export(req: ExportRequest):
             if md_path.exists():
                 txt_path = md_path.with_suffix(".txt")
                 txt_path.write_text(md_path.read_text(encoding="utf-8"), encoding="utf-8")
-                result.stdout = str(txt_path)
-        return {"ok": result.returncode == 0, "stdout": result.stdout[-2000:], "stderr": result.stderr[-1000:]}
-    except subprocess.TimeoutExpired:
-        return {"ok": False, "stdout": "", "stderr": "导出超时"}
+                stdout_str = str(txt_path)
+        
+        return {"ok": process.returncode == 0, "stdout": stdout_str[-2000:], "stderr": stderr_str[-1000:]}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {"ok": False, "stdout": "", "stderr": f"执行出错：{str(e)}"}
 
 
 # ── StoryCanvas 导入/导出 ────────────────────────────────────────────────────

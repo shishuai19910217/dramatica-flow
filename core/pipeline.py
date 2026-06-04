@@ -774,8 +774,31 @@ class WritingPipeline:
                 self.sm.open_hook(hook)
 
         # 6. 回收伏笔（标记为已解决）
-        for hook_id in s.resolved_hooks:
-            self.sm.resolve_hook(hook_id, chapter)
+        # 支持通过描述匹配伏笔（写手输出的是描述而不是 ID）
+        ws = self.sm.read_world_state()
+        open_hooks = [h for h in ws.pending_hooks if h.status == HookStatus.OPEN]
+        resolved_count = 0
+        for hook_ref in s.resolved_hooks:
+            matched = False
+            # 先尝试按 ID 匹配
+            for hook in open_hooks:
+                if hook.id == hook_ref:
+                    self.sm.resolve_hook(hook.id, chapter)
+                    matched = True
+                    resolved_count += 1
+                    log(f"伏笔ID回收：「{hook.description}」")
+                    break
+            # 再尝试按描述匹配（写手输出的是伏笔描述）
+            if not matched:
+                for hook in open_hooks:
+                    if hook_ref.lower() in hook.description.lower() or hook.description.lower() in hook_ref.lower():
+                        self.sm.resolve_hook(hook.id, chapter)
+                        matched = True
+                        resolved_count += 1
+                        log(f"伏笔描述回收：「{hook.description}」")
+                        break
+        if resolved_count > 0:
+            log(f"本章共回收 {resolved_count} 个伏笔")
 
         # 7. 信息揭示（角色得知新信息）
         for info in s.info_revealed:
