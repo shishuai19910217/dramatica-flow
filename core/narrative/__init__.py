@@ -464,8 +464,8 @@ class NarrativeEngine:
                 )
                 for i, co in enumerate(outlines):
                     co.chapter_number = actual_ch_start + i
-                    if co.target_words == 0:
-                        co.target_words = words_per_chapter
+                    # 始终使用书籍设置中的目标字数覆盖所有章节
+                    co.target_words = words_per_chapter
                     # 后处理：替换通用标题为有意义的标题
                     if co.title and ("情节推进" in co.title or "剧情发展" in co.title or "章-" == co.title[-2:]):
                         # 尝试从 beats 或 summary 提取关键词
