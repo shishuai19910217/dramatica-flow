@@ -173,10 +173,14 @@ class PostWriteValidator:
         # ── 规则 8：字数偏差 ───────────────────────────────────────────────────
         if target_words > 0:
             deviation = abs(word_count - target_words) / target_words
+            # 严重超标（超过130%）或严重不足（低于70%）视为错误，触发修订
+            is_over_limit = word_count > target_words * 1.3
+            is_under_limit = word_count < target_words * 0.7
+            severity = "error" if (is_over_limit or is_under_limit) else "warning"
             if deviation > 0.2:
                 issues.append(ValidationIssue(
                     rule="WORD_COUNT_DEVIATION",
-                    severity="warning",
+                    severity=severity,
                     description=f"实际 {word_count} 字，目标 {target_words} 字，偏差 {deviation*100:.0f}%（上限 20%）",
                 ))
 

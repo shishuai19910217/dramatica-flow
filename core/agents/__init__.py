@@ -371,8 +371,12 @@ class WriterAgent:
 ### 高风险连续性点（写时注意）
 {blueprint.pre_write_checklist.risk_scan}
 
-### 字数要求
-目标 {target_words} 字（允许 ±10%，即 {int(target_words*0.9)}–{int(target_words*1.1)} 字）
+### 字数要求（硬性约束）
+- 目标字数：{target_words} 字
+- 允许范围：{int(target_words*0.9)}–{int(target_words*1.1)} 字（±10%）
+- 硬性上限：不得超过 {int(target_words*1.3)} 字
+- 硬性下限：不得低于 {int(target_words*0.7)} 字
+- 要求：请严格控制字数，在允许范围内完成写作。如果内容过多，请精简冗余描写；如果内容不足，请丰富细节。字数超出范围将被视为不符合要求。
 
 ---
 请直接开始写正文，写完后输出：
@@ -672,11 +676,12 @@ class ReviserAgent:
         issues: list[AuditIssue],
         mode: ReviseMode = "spot-fix",
         custom_prompt: str | None = None,
+        target_words: Optional[int] = None,  # 新增：目标字数参数
     ) -> ReviseResult:
         critical = [i for i in issues if i.severity == "critical"]
         warnings  = [i for i in issues if i.severity == "warning"]
 
-        if not critical and not warnings:
+        if not critical and not warnings and not target_words:
             return ReviseResult(
                 content=original_content,
                 change_log=["无需要修复的问题"],
@@ -684,7 +689,7 @@ class ReviserAgent:
 
         # 专门处理字数偏差问题
         word_count_issue = None
-        target_words = None
+        detected_target_words = None
         
         # 检测并提取字数偏差信息 - 需要同时检查 dimension 和 description
         import re
@@ -697,8 +702,11 @@ class ReviserAgent:
                 # 从描述中提取目标字数
                 match = re.search(r"目标\s*(\d+)\s*字", i.description)
                 if match:
-                    target_words = int(match.group(1))
+                    detected_target_words = int(match.group(1))
                 break
+        
+        # 优先使用传入的 target_words 参数，其次使用从问题中检测到的目标字数
+        effective_target_words = target_words if target_words is not None else detected_target_words
 
         # 构建问题列表
         issue_lines = []
@@ -712,26 +720,37 @@ class ReviserAgent:
                 line += f"\n  修复建议：{i.suggestion}"
             issue_lines.append(line)
 
-        # 如果有字数偏差，添加特殊提示
+        # 如果有目标字数，添加字数约束提示（始终传递，而不仅限于检测到字数偏差时）
         word_count_instruction = ""
-        if word_count_issue and target_words:
+        if effective_target_words:
             current_words = len(original_content)
-            is_too_long = len(original_content) > target_words * 1.2
-            is_too_short = len(original_content) < target_words * 0.8
+            deviation = abs(current_words - effective_target_words) / effective_target_words
+            is_too_long = current_words > effective_target_words * 1.2
+            is_too_short = current_words < effective_target_words * 0.8
             
-            if is_too_long:
-                operation_text = "适当精简压缩内容，删除冗余描写，保持核心情节"
-                action_text = "精简"
-            else:
-                operation_text = "扩充内容，增加细节描写，丰富情节"
-                action_text = "扩充"
-            
-            word_count_instruction = f"""
+            # 如果已有字数偏差问题，按照原有逻辑处理；否则仅作为参考约束
+            if word_count_issue:
+                if is_too_long:
+                    operation_text = "适当精简压缩内容，删除冗余描写，保持核心情节"
+                    action_text = "精简"
+                else:
+                    operation_text = "扩充内容，增加细节描写，丰富情节"
+                    action_text = "扩充"
+                
+                word_count_instruction = f"""
 ## 特别注意：字数调整要求
-- 当前字数：{len(original_content)} 字
-- 目标字数：{target_words} 字
+- 当前字数：{current_words} 字
+- 目标字数：{effective_target_words} 字
 - 操作：{operation_text}
 - 要求：请直接对全文进行{action_text}，字数接近目标字数，保持剧情走向和核心内容完全不变。
+"""
+            else:
+                # 没有检测到字数偏差问题，但有目标字数作为参考
+                word_count_instruction = f"""
+## 字数参考约束
+- 当前字数：{current_words} 字
+- 目标字数：{effective_target_words} 字
+- 要求：修订时请尽量保持字数在目标字数的 ±20% 范围内（{int(effective_target_words*0.8)} - {int(effective_target_words*1.2)} 字），避免大幅增减字数。
 """
 
         # 如果有自定义提示词，直接使用
@@ -945,6 +964,7 @@ class QualityAgent:
         cross_thread_context: str = "",
         audit_report: Optional[AuditReport] = None,
         auto_revise: bool = True,
+        target_words: Optional[int] = None,  # 新增：目标字数参数
     ) -> tuple[str, QualityReport]:
         """
         执行章节质量评估（借鉴 AuditorAgent.audit_chapter() 参数设计）
@@ -960,6 +980,7 @@ class QualityAgent:
             cross_thread_context: 跨线程上下文（多线叙事一致性）
             audit_report: 审计报告（可复用结果，避免重复分析）
             auto_revise: 是否自动根据评估结果进行修订
+            target_words: 目标字数（可选），用于字数约束检查
         
         Returns:
             Tuple[str, QualityReport]: (修订后的正文, 质量评估报告)
@@ -1121,6 +1142,7 @@ class QualityAgent:
                 content=final_content,
                 quality_report=quality_report,
                 mode="spot-fix",
+                target_words=target_words,  # 传递目标字数参数
             )
             final_content = revise_result.content
         
@@ -1131,6 +1153,7 @@ class QualityAgent:
         content: str,
         quality_report: QualityReport,
         mode: ReviseMode = "spot-fix",
+        target_words: Optional[int] = None,  # 新增：目标字数参数
     ) -> QualityReviseResult:
         """
         根据质量评估报告修订内容（参考 ReviserAgent.revise()）
@@ -1142,15 +1165,27 @@ class QualityAgent:
                 - spot-fix: 只修改有问题的句子/段落，其余正文一字不动
                 - rewrite-section: 重写包含问题的段落
                 - polish: 在不改变情节的前提下提升文笔流畅度
+            target_words: 目标字数（可选），用于字数约束检查
         
         Returns:
             QualityReviseResult: 修订结果
         """
         issues = []
+        word_count_issue = None
+        detected_target_words = None
+        
+        import re
         for dim_score in quality_report.dimension_scores:
             for issue in dim_score.issues:
                 if issue.severity in ["critical", "warning"]:
                     issues.append(issue)
+                    # 检测字数偏差问题
+                    if ("WORD_COUNT_DEVIATION" in issue.description or 
+                        "字数偏差" in issue.description):
+                        word_count_issue = issue
+                        match = re.search(r"目标\s*(\d+)\s*字", issue.description)
+                        if match:
+                            detected_target_words = int(match.group(1))
         
         for cons_score in quality_report.consistency_scores:
             for issue in cons_score.issues:
@@ -1159,14 +1194,18 @@ class QualityAgent:
         
         issues.sort(key=lambda x: 0 if x.severity == "critical" else 1)
         
-        if not issues:
+        # 优先使用传入的 target_words 参数，其次使用从问题中检测到的目标字数
+        effective_target_words = target_words if target_words is not None else detected_target_words
+        
+        # 如果没有问题且没有目标字数约束，直接返回
+        if not issues and not effective_target_words:
             return QualityReviseResult(
                 content=content,
                 change_log=["无需要修复的问题"],
                 revised_issues=[],
             )
         
-        prompt = self._build_revise_prompt(content, issues, mode)
+        prompt = self._build_revise_prompt(content, issues, mode, effective_target_words)
         
         def _call() -> QualityReviseResult:
             resp = self.llm.complete([
@@ -1187,9 +1226,22 @@ class QualityAgent:
         content: str,
         issues: List[QualityIssue],
         mode: ReviseMode,
+        target_words: Optional[int] = None,  # 新增：目标字数参数
     ) -> str:
+        # 检测字数偏差问题
+        word_count_issue = None
+        import re
+        for i in issues:
+            if ("WORD_COUNT_DEVIATION" in i.description or 
+                "字数偏差" in i.description):
+                word_count_issue = i
+                break
+        
+        # 构建问题列表（排除字数偏差问题，单独处理）
         issue_lines = []
         for i, issue in enumerate(issues):
+            if issue == word_count_issue:
+                continue  # 字数偏差问题单独处理
             line = f"{i+1}. [{issue.severity.upper()}] {issue.description}"
             if issue.location:
                 line += f"\n   位置：{issue.location}"
@@ -1203,14 +1255,48 @@ class QualityAgent:
             "polish": "在不改变情节的前提下提升文笔流畅度，禁止增删段落",
         }
         
+        # 如果有目标字数，添加字数约束提示
+        word_count_instruction = ""
+        if target_words:
+            current_words = len(content)
+            is_too_long = current_words > target_words * 1.2
+            is_too_short = current_words < target_words * 0.8
+            
+            if word_count_issue:
+                # 如果已有字数偏差问题，按照原有逻辑处理
+                if is_too_long:
+                    operation_text = "适当精简压缩内容，删除冗余描写，保持核心情节"
+                    action_text = "精简"
+                else:
+                    operation_text = "扩充内容，增加细节描写，丰富情节"
+                    action_text = "扩充"
+                
+                word_count_instruction = f"""
+## 特别注意：字数调整要求
+- 当前字数：{current_words} 字
+- 目标字数：{target_words} 字
+- 操作：{operation_text}
+- 要求：请直接对全文进行{action_text}，字数接近目标字数，保持剧情走向和核心内容完全不变。
+"""
+            else:
+                # 没有检测到字数偏差问题，但有目标字数作为参考
+                word_count_instruction = f"""
+## 字数参考约束
+- 当前字数：{current_words} 字
+- 目标字数：{target_words} 字
+- 要求：修订时请尽量保持字数在目标字数的 ±20% 范围内（{int(target_words*0.8)} - {int(target_words*1.2)} 字），避免大幅增减字数。
+"""
+        
         return f"""\
 ## 修订任务
 模式：{mode}
 规则：{mode_instructions[mode]}
 硬约束：不得引入新情节，不得修改角色名，不得改变情节走向。
 
+{word_count_instruction}
+
 ## 需修订的问题
-{chr(10).join(issue_lines)}
+{chr(10).join(issue_lines) if issue_lines else "（无其他问题，只需调整字数）"}
 
 ## 原文
 {content}

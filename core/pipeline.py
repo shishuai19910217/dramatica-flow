@@ -315,7 +315,12 @@ class WritingPipeline:
                 if i.severity == "error"
             ]
             log(f"验证未通过（{len(error_issues)} 个 error），spot-fix...")
-            fix_result = self.reviser.revise(current_content, error_issues, mode="spot-fix")
+            fix_result = self.reviser.revise(
+                current_content, 
+                error_issues, 
+                mode="spot-fix",
+                target_words=adjusted_target_words,  # 传递目标字数参数
+            )
             current_content = fix_result.content
 
         # ── 步骤7: 审计 → 修订闭环 ────────────────────────────────────────────
@@ -349,6 +354,7 @@ class WritingPipeline:
                 current_content,
                 audit_report.issues,
                 mode="spot-fix",
+                target_words=adjusted_target_words,  # 传递目标字数参数
             )
             current_content = revise_result.content
             revision_rounds += 1
@@ -384,6 +390,7 @@ class WritingPipeline:
                 cross_thread_context=cross_thread_audit_ctx,
                 audit_report=audit_report,
                 auto_revise=True,
+                target_words=adjusted_target_words,  # 传递目标字数参数
             )
             quality_score = quality_report.overall_score
             log(f"质量评分：{quality_score}")
