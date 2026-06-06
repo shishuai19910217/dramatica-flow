@@ -317,7 +317,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft Ya
     <h3>创建新书籍</h3>
     <div class="form-row">
       <div class="form-group"><label class="form-label">书名 *</label><input class="form-input" id="cb-title" placeholder="例：吞天魔帝"></div>
-      <div class="form-group"><label class="form-label">题材</label><select class="form-select" id="cb-genre"><option>玄幻</option><option>仙侠</option><option>都市</option><option>科幻</option><option>科幻末世</option><option>历史</option><option>言情</option><option>悬疑</option><option>游戏</option><option>无限流</option><option>其他</option></select></div>
+      <div class="form-group"><label class="form-label">题材</label><select class="form-select" id="cb-genre"><option>玄幻</option><option>仙侠</option><option>都市</option><option>科幻</option><option>科幻末世</option><option>历史</option><option>言情</option><option>悬疑</option><option>悬疑脑洞</option><option>游戏</option><option>无限流</option><option>其他</option></select></div>
     </div>
     <div class="form-row">
       <div class="form-group"><label class="form-label">目标章数</label><input class="form-input" id="cb-chapters" type="number" value="90"></div>
@@ -337,6 +337,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft Ya
         <button type="button" class="tag-btn" onclick="document.getElementById('cb-style').value='半文半白，考据扎实，权谋博弈描写细腻，对话符合时代特征，注重历史氛围'">历史架空</button>
         <button type="button" class="tag-btn" onclick="document.getElementById('cb-style').value='轻松诙谐，对话风趣，善用吐槽和反转，节奏轻快，常有意想不到的幽默感'">轻松搞笑</button>
         <button type="button" class="tag-btn" onclick="document.getElementById('cb-style').value='文笔沉稳厚重，善用象征隐喻，氛围压抑沉郁，节奏缓慢但充满张力'">暗黑复仇</button>
+        <button type="button" class="tag-btn" onclick="document.getElementById('cb-style').value='诡异压抑风格，善用环境描写和心理刻画营造恐怖感。规则怪谈类描写简洁有力，每条规则都带冰冷压迫感。灵异元素通过侧面烘托而非直接描写，让读者自行想象恐惧。信息碎片化释放，逐步揭示真相。节奏张弛交替，紧张场景配合喘息空间。多用短句和断句增强压抑感，心理活动多于动作描写'">悬疑脑洞</button>
       </div>
     </div>
     <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
@@ -352,7 +353,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft Ya
     <h3>编辑书籍设置</h3>
     <div class="form-row">
       <div class="form-group"><label class="form-label">书名 *</label><input class="form-input" id="eb-title" placeholder="例：吞天魔帝"></div>
-      <div class="form-group"><label class="form-label">题材</label><select class="form-select" id="eb-genre"><option>玄幻</option><option>仙侠</option><option>都市</option><option>科幻</option><option>科幻末世</option><option>历史</option><option>言情</option><option>悬疑</option><option>游戏</option><option>无限流</option><option>其他</option></select></div>
+      <div class="form-group"><label class="form-label">题材</label><select class="form-select" id="eb-genre"><option>玄幻</option><option>仙侠</option><option>都市</option><option>科幻</option><option>科幻末世</option><option>历史</option><option>言情</option><option>悬疑</option><option>悬疑脑洞</option><option>游戏</option><option>无限流</option><option>其他</option></select></div>
     </div>
     <div class="form-row">
       <div class="form-group"><label class="form-label">目标章数</label><input class="form-input" id="eb-chapters" type="number" value="90"></div>
@@ -1070,6 +1071,7 @@ function loadStep3Extract() {
             <option value="科幻末世">科幻末世</option>
             <option value="历史">历史</option>
             <option value="悬疑">悬疑</option>
+            <option value="悬疑脑洞">悬疑脑洞</option>
             <option value="言情">言情</option>
             <option value="奇幻">奇幻</option>
             <option value="武侠">武侠</option>
@@ -2788,7 +2790,7 @@ function showImportNovelModal() {
             <option value="玄幻">玄幻</option><option value="仙侠">仙侠</option>
             <option value="都市">都市</option><option value="科幻">科幻</option>
             <option value="科幻末世">科幻末世</option><option value="历史">历史</option><option value="言情">言情</option>
-            <option value="悬疑">悬疑</option><option value="奇幻">奇幻</option>
+            <option value="悬疑">悬疑</option><option value="悬疑脑洞">悬疑脑洞</option><option value="奇幻">奇幻</option>
             <option value="其他">其他</option>
           </select>
         </div>

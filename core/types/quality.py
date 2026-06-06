@@ -92,6 +92,11 @@ GENRE_MATRIX: List[GenreCriteria] = [
         weights={"氛围营造": 0.4, "心理压迫感": 0.35, "留白技巧": 0.25}
     ),
     GenreCriteria(
+        genre="悬疑脑洞",
+        criteria=["规则设定新颖性", "悬念保持度", "世界观一致性", "氛围营造"],
+        weights={"规则设定新颖性": 0.3, "悬念保持度": 0.3, "世界观一致性": 0.2, "氛围营造": 0.2}
+    ),
+    GenreCriteria(
         genre="网文",
         criteria=["开篇钩子", "爽点密度", "追读欲望"],
         weights={"开篇钩子": 0.4, "爽点密度": 0.3, "追读欲望": 0.3}
