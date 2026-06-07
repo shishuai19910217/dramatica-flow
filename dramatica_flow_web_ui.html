@@ -379,6 +379,77 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft Ya
   </div>
 </div>
 
+<!-- ── 弹窗：进度展示 ─────────────────────────────────────────────────────── -->
+<div class="modal-overlay" id="modal-progress" style="display:none">
+  <div class="modal" style="max-width:500px">
+    <h3 id="progress-title">AI 正在生成章节大纲</h3>
+    <div id="progress-content" style="padding:8px 0">
+      <!-- 进度条 -->
+      <div style="margin-bottom:16px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+          <span style="color:var(--text2);font-size:14px">总体进度</span>
+          <span id="progress-percent" style="font-weight:600;color:var(--primary)">0%</span>
+        </div>
+        <div style="background:var(--bg2);border-radius:8px;height:12px;overflow:hidden">
+          <div id="progress-bar" style="background:linear-gradient(90deg,var(--primary),var(--primary-light));height:100%;width:0%;border-radius:8px;transition:width 0.3s ease"></div>
+        </div>
+      </div>
+      
+      <!-- 序列进度 -->
+      <div style="margin-bottom:16px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+          <span style="color:var(--text2);font-size:14px">序列进度</span>
+          <span id="progress-sequence" style="font-weight:500">0 / 0</span>
+        </div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap" id="sequence-indicators"></div>
+      </div>
+      
+      <!-- 章节进度 -->
+      <div style="margin-bottom:16px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+          <span style="color:var(--text2);font-size:14px">章节进度</span>
+          <span id="progress-chapters" style="font-weight:500">0 / 0</span>
+        </div>
+      </div>
+      
+      <!-- 状态描述 -->
+      <div style="background:var(--bg2);border-radius:8px;padding:12px;margin-bottom:8px">
+        <div style="display:flex;gap:10px;align-items:center">
+          <div id="progress-spinner" style="width:18px;height:18px;border:2px solid var(--bg3);border-top-color:var(--primary);border-radius:50%;animation:spin 0.8s linear infinite"></div>
+          <div id="progress-message" style="font-size:14px;color:var(--text1);line-height:1.5">准备开始...</div>
+        </div>
+      </div>
+      
+      <!-- 日志区域 -->
+      <div id="progress-log" style="max-height:180px;overflow-y:auto;background:var(--bg3);border-radius:6px;padding:10px;font-size:12px;color:var(--text2);font-family:ui-monospace,monospace;line-height:1.6"></div>
+    </div>
+    <div id="progress-actions" style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+      <button class="btn" id="progress-close-btn" onclick="closeProgressModal()" style="display:none">关闭</button>
+    </div>
+  </div>
+</div>
+
+<style>
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.sequence-dot {
+  width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;
+  background:var(--bg3);color:var(--text3);border:2px solid var(--bg3);transition:all 0.3s ease;
+}
+.sequence-dot.active {
+  background:var(--primary-light);border-color:var(--primary);color:var(--primary);
+  animation:pulse 1.5s ease-in-out infinite;
+}
+.sequence-dot.completed {
+  background:var(--green);border-color:var(--green);color:white;
+}
+@keyframes pulse {
+  0%,100% { transform:scale(1); }
+  50% { transform:scale(1.1); }
+}
+</style>
+
 <script>
 const API = 'http://localhost:8766/api';
 let currentBook = null, bookData = null, allBooks = [];
@@ -2247,20 +2318,200 @@ async function saveChOutlineInline(idx) {
   } catch (e) { toast('保存失败: ' + e.message, false); }
 }
 
+let progressEventSource = null;
+let progressBtnRef = null;
+
+function openProgressModal() {
+  document.getElementById('modal-progress').style.display = '';
+  // 重置UI
+  document.getElementById('progress-percent').textContent = '0%';
+  document.getElementById('progress-bar').style.width = '0%';
+  document.getElementById('progress-sequence').textContent = '0 / 0';
+  document.getElementById('progress-chapters').textContent = '0 / 0';
+  document.getElementById('progress-message').textContent = '准备开始...';
+  document.getElementById('progress-log').innerHTML = '';
+  document.getElementById('sequence-indicators').innerHTML = '';
+  document.getElementById('progress-spinner').style.display = '';
+  document.getElementById('progress-close-btn').style.display = 'none';
+}
+
+function closeProgressModal() {
+  document.getElementById('modal-progress').style.display = 'none';
+  if (progressEventSource) {
+    progressEventSource.close();
+    progressEventSource = null;
+  }
+  if (progressBtnRef) {
+    progressBtnRef.disabled = false;
+    progressBtnRef.textContent = progressBtnRef._origText || 'AI 生成章节大纲';
+    progressBtnRef = null;
+  }
+}
+
+function addProgressLog(message) {
+  const logEl = document.getElementById('progress-log');
+  const time = new Date().toLocaleTimeString();
+  logEl.innerHTML += `<div>[${time}] ${esc(message)}</div>`;
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function updateProgress(data) {
+  const totalChapters = data.total_chapters || 0;
+  const chaptersCompleted = data.chapters_completed_total || 0;
+  const percent = totalChapters > 0 ? Math.round((chaptersCompleted / totalChapters) * 100) : 0;
+  
+  // 更新进度条
+  document.getElementById('progress-percent').textContent = `${percent}%`;
+  document.getElementById('progress-bar').style.width = `${percent}%`;
+  
+  // 更新章节计数
+  document.getElementById('progress-chapters').textContent = `${chaptersCompleted} / ${totalChapters}`;
+  
+  // 更新序列计数
+  if (data.sequence_index !== undefined && data.total_sequences !== undefined) {
+    document.getElementById('progress-sequence').textContent = `${data.sequence_index} / ${data.total_sequences}`;
+  }
+  
+  // 更新序列指示器
+  const indicatorsContainer = document.getElementById('sequence-indicators');
+  if (data.total_sequences && indicatorsContainer.children.length === 0) {
+    // 初始化序列指示器
+    indicatorsContainer.innerHTML = '';
+    for (let i = 1; i <= data.total_sequences; i++) {
+      const dot = document.createElement('div');
+      dot.className = 'sequence-dot';
+      dot.id = `seq-dot-${i}`;
+      dot.textContent = i;
+      indicatorsContainer.appendChild(dot);
+    }
+  }
+  
+  // 更新当前序列状态
+  if (data.stage === 'sequence_start' && data.sequence_index) {
+    for (let i = 1; i < data.sequence_index; i++) {
+      const dot = document.getElementById(`seq-dot-${i}`);
+      if (dot) dot.className = 'sequence-dot completed';
+    }
+    const currentDot = document.getElementById(`seq-dot-${data.sequence_index}`);
+    if (currentDot) currentDot.className = 'sequence-dot active';
+  } else if (data.stage === 'sequence_complete' && data.sequence_index) {
+    const dot = document.getElementById(`seq-dot-${data.sequence_index}`);
+    if (dot) dot.className = 'sequence-dot completed';
+  }
+  
+  // 更新消息
+  if (data.message) {
+    document.getElementById('progress-message').textContent = data.message;
+    addProgressLog(data.message);
+  }
+}
+
 async function aiGenChapterOutlines() {
   if (!currentBook) return;
   const btn = event?.target?.closest('button');
   if (btn) { btn.disabled = true; btn._origText = btn.textContent; btn.textContent = '生成中，请稍候...'; }
-  toast('AI 正在生成章节大纲，请耐心等待...', 'loading');
+  progressBtnRef = btn;
+  
+  // 打开进度弹窗
+  openProgressModal();
+  
   try {
-    const res = await api(`/books/${currentBook.id}/ai-generate/chapter-outlines`, { method: 'POST' });
-    if (!res.ok) { toast(res.detail || '生成失败', false); return; }
-    chapterOutlinesCache = res.outlines;
-    bookData.chapterOutlines = res.outlines;
-    toast(`${res.count} 章大纲已生成`, true);
-    loadStep4();
-  } catch (e) { toast('生成失败: ' + e.message, false); }
-  finally { if (btn) { btn.disabled = false; btn.textContent = btn._origText || 'AI 生成章节大纲'; } }
+    // 建立SSE连接
+    const url = `${API}/books/${currentBook.id}/ai-generate/chapter-outlines/stream`;
+    progressEventSource = new EventSource(url);
+    
+    let isCompleted = false;
+    let resultOutlines = null;
+    let resultCount = 0;
+    
+    progressEventSource.onmessage = function(event) {
+      try {
+        const data = JSON.parse(event.data);
+        
+        if (data.stage === 'init') {
+          updateProgress(data);
+        } else if (data.stage === 'generating') {
+          updateProgress(data);
+        } else if (data.stage === 'sequence_start') {
+          updateProgress(data);
+        } else if (data.stage === 'sequence_complete') {
+          updateProgress(data);
+        } else if (data.stage === 'complete') {
+          isCompleted = true;
+          resultOutlines = data.outlines;
+          resultCount = data.count;
+          
+          // 完成状态更新
+          document.getElementById('progress-percent').textContent = '100%';
+          document.getElementById('progress-bar').style.width = '100%';
+          document.getElementById('progress-message').textContent = data.message;
+          document.getElementById('progress-spinner').style.display = 'none';
+          document.getElementById('progress-close-btn').style.display = '';
+          
+          // 将所有序列标记为完成
+          const indicators = document.querySelectorAll('.sequence-dot');
+          indicators.forEach(dot => dot.className = 'sequence-dot completed');
+          
+          addProgressLog(data.message);
+          
+          // 更新数据
+          chapterOutlinesCache = resultOutlines;
+          bookData.chapterOutlines = resultOutlines;
+          
+          toast(`${resultCount} 章大纲已生成`, true);
+          
+          // 关闭SSE
+          progressEventSource.close();
+          progressEventSource = null;
+          
+          // 延迟刷新页面
+          setTimeout(() => {
+            loadStep4();
+            if (progressBtnRef) {
+              progressBtnRef.disabled = false;
+              progressBtnRef.textContent = progressBtnRef._origText || 'AI 生成章节大纲';
+              progressBtnRef = null;
+            }
+          }, 800);
+        } else if (data.stage === 'error') {
+          updateProgress(data);
+          document.getElementById('progress-spinner').style.display = 'none';
+          document.getElementById('progress-close-btn').style.display = '';
+          toast(data.message || '生成失败', false);
+          
+          progressEventSource.close();
+          progressEventSource = null;
+          if (progressBtnRef) {
+            progressBtnRef.disabled = false;
+            progressBtnRef.textContent = progressBtnRef._origText || 'AI 生成章节大纲';
+            progressBtnRef = null;
+          }
+        }
+      } catch (e) {
+        console.error('解析SSE消息失败:', e);
+      }
+    };
+    
+    progressEventSource.onerror = function(error) {
+      console.error('SSE连接错误:', error);
+      if (!isCompleted) {
+        toast('连接中断，请重试', false);
+        if (progressEventSource) {
+          progressEventSource.close();
+          progressEventSource = null;
+        }
+        if (progressBtnRef) {
+          progressBtnRef.disabled = false;
+          progressBtnRef.textContent = progressBtnRef._origText || 'AI 生成章节大纲';
+          progressBtnRef = null;
+        }
+      }
+    };
+    
+  } catch (e) {
+    toast('生成失败: ' + e.message, false);
+    closeProgressModal();
+  }
 }
 
 function deleteChOutline(idx) {

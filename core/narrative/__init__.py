@@ -315,6 +315,7 @@ class NarrativeEngine:
         world_context: str,
         chapter_start: int,
         words_per_chapter: int,
+        progress_callback=None,
     ) -> list[ChapterOutlineSchema]:
         """
         将一个序列展开为 estimated_scenes 个章纲。
@@ -325,6 +326,7 @@ class NarrativeEngine:
         # 每批最多生成 5 章，防止 JSON 太长被截断
         BATCH_SIZE = 5
         all_outlines = []
+        total_batches = (n_chapters + BATCH_SIZE - 1) // BATCH_SIZE
 
         # AI 常用的非法 dramatic_function 别名映射到合法值
         _DF_ALIASES = {
@@ -371,10 +373,23 @@ class NarrativeEngine:
                         beat["story_circle_step"] = None
             return item
 
-        for batch_start in range(0, n_chapters, BATCH_SIZE):
+        for batch_idx, batch_start in enumerate(range(0, n_chapters, BATCH_SIZE)):
             batch_end = min(batch_start + BATCH_SIZE, n_chapters)
             batch_count = batch_end - batch_start
             actual_ch_start = chapter_start + batch_start
+            
+            # 进度回调：通知当前批次开始
+            if progress_callback:
+                progress_callback({
+                    "stage": "generating",
+                    "sequence_id": sequence.id,
+                    "sequence_name": f"序列{sequence.id}",
+                    "batch_index": batch_idx,
+                    "total_batches": total_batches,
+                    "chapters_completed": batch_start,
+                    "total_chapters": n_chapters,
+                    "message": f"正在生成第 {actual_ch_start}-{actual_ch_start + batch_count - 1} 章大纲..."
+                })
 
             # Dan Harmon 8步故事圈指导
             story_circle_guide = ""
@@ -506,6 +521,19 @@ class NarrativeEngine:
 
             batch_result = with_retry(_call)
             all_outlines.extend(batch_result)
+            
+            # 进度回调：通知当前批次完成
+            if progress_callback:
+                progress_callback({
+                    "stage": "generating",
+                    "sequence_id": sequence.id,
+                    "sequence_name": f"序列{sequence.id}",
+                    "batch_index": batch_idx,
+                    "total_batches": total_batches,
+                    "chapters_completed": batch_end,
+                    "total_chapters": n_chapters,
+                    "message": f"已完成第 {actual_ch_start}-{actual_ch_start + batch_count - 1} 章大纲"
+                })
         return all_outlines
 
     # ── 3. 因果链提取 ──────────────────────────────────────────────────────────

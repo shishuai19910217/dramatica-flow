@@ -25,7 +25,7 @@ except ImportError:
 try:
     from fastapi import FastAPI, HTTPException, Form, Request
     from fastapi.middleware.cors import CORSMiddleware
-    from fastapi.responses import FileResponse
+    from fastapi.responses import FileResponse, StreamingResponse
 except ImportError:
     _MISSING.append("fastapi")
 try:
@@ -2557,6 +2557,167 @@ async def ai_generate_chapter_outlines(book_id: str):
     except Exception as e:
         import traceback; traceback.print_exc()
         raise HTTPException(500, f"章纲生成失败：{e}")
+
+
+@app.get("/api/books/{book_id}/ai-generate/chapter-outlines/stream")
+async def ai_generate_chapter_outlines_stream(book_id: str):
+    """基于已有大纲生成全部章纲（SSE实时进度）"""
+    _load_env()
+    from core.setup import SetupLoader
+    from core.narrative import NarrativeEngine, StoryOutlineSchema
+
+    sm = _sm(book_id)
+    outline_path = sm.state_dir / "outline.json"
+    if not outline_path.exists():
+        raise HTTPException(404, "请先生成大纲")
+
+    try:
+        state = SetupLoader.restore(PROJECT_ROOT, book_id)
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e))
+
+    try:
+        llm = _create_llm(temperature=0.7)
+    except Exception as e:
+        raise HTTPException(400, f"LLM 创建失败：{e}")
+
+    # 读取大纲 JSON 并规范化后再验证
+    outline_raw = json.loads(outline_path.read_text(encoding="utf-8"))
+    outline_raw = _normalize_outline(outline_raw, sm)
+    outline = StoryOutlineSchema.model_validate_json(json.dumps(outline_raw, ensure_ascii=False))
+    protagonist = state.characters.get(state.config.protagonist_id)
+    if protagonist is None:
+        for ch in state.characters.values():
+            if getattr(ch, "role", None) == "protagonist":
+                protagonist = ch
+                break
+    if protagonist is None:
+        protagonist = next(iter(state.characters.values()), None)
+    if protagonist is None:
+        raise HTTPException(400, "未找到主角角色信息，请检查角色配置")
+    engine = NarrativeEngine(llm)
+
+    async def event_generator():
+        try:
+            # 在内部定义所有变量，避免闭包作用域问题
+            total_sequences_local = len(outline.sequences)
+            total_chapters_local = sum(seq.estimated_scenes for seq in outline.sequences)
+            chapters_completed_total = 0
+            all_outlines = []
+            ch_start = 1
+            
+            # 获取当前事件循环（必须在主线程中获取）
+            loop = asyncio.get_running_loop()
+            
+            # 初始化进度
+            yield f"data: {json.dumps({'stage': 'init', 'message': '准备开始生成章节大纲...', 'total_sequences': total_sequences_local, 'total_chapters': total_chapters_local}, ensure_ascii=False)}\n\n"
+            await asyncio.sleep(0.1)
+
+            for seq_idx, seq in enumerate(outline.sequences):
+                current_sequence = seq_idx + 1
+                # SequenceSchema 没有 name 属性，使用 summary 或默认名称
+                seq_name = f"序列{current_sequence}"
+                if hasattr(seq, 'summary') and seq.summary:
+                    # 使用 summary 的前20个字符作为显示名称
+                    seq_name = seq.summary[:20] + ("..." if len(seq.summary) > 20 else "")
+                
+                # 通知开始处理新序列
+                yield f"data: {json.dumps({
+                    'stage': 'sequence_start',
+                    'sequence_index': current_sequence,
+                    'total_sequences': total_sequences_local,
+                    'sequence_name': seq_name,
+                    'sequence_chapters': seq.estimated_scenes,
+                    'message': f'开始处理「{seq_name}」（{seq.estimated_scenes}章）...'
+                }, ensure_ascii=False)}\n\n"
+                await asyncio.sleep(0.1)
+
+                # 进度回调队列
+                progress_queue = asyncio.Queue()
+                cur_chapters_before = chapters_completed_total
+
+                # 使用类实例来保存状态，避免闭包问题
+                class ProgressState:
+                    def __init__(self, seq_num, chapters_before, total_seqs, total_chaps, event_loop, queue):
+                        self.seq_num = seq_num
+                        self.chapters_before = chapters_before
+                        self.total_seqs = total_seqs
+                        self.total_chaps = total_chaps
+                        self.loop = event_loop
+                        self.queue = queue
+                
+                state_obj = ProgressState(current_sequence, cur_chapters_before, total_sequences_local, total_chapters_local, loop, progress_queue)
+                
+                def progress_callback(data):
+                    # 计算总体进度
+                    data['sequence_index'] = state_obj.seq_num
+                    data['total_sequences'] = state_obj.total_seqs
+                    data['chapters_completed_total'] = state_obj.chapters_before + data['chapters_completed']
+                    data['total_chapters'] = state_obj.total_chaps
+                    # 使用预存的事件循环引用
+                    asyncio.run_coroutine_threadsafe(state_obj.queue.put(data), state_obj.loop)
+
+                # 在独立线程中执行生成
+                cos = await asyncio.to_thread(
+                    engine.generate_chapter_outlines,
+                    seq, protagonist,
+                    sm.read_truth("story_bible"),
+                    ch_start,
+                    state.config.target_words_per_chapter,
+                    progress_callback,
+                )
+                
+                # 从队列中读取进度更新
+                while not progress_queue.empty():
+                    try:
+                        data = progress_queue.get_nowait()
+                        yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+                    except asyncio.QueueEmpty:
+                        break
+
+                all_outlines.extend(cos)
+                chapters_completed_total += len(cos)
+                ch_start += len(cos)
+
+                # 通知序列完成
+                yield f"data: {json.dumps({
+                    'stage': 'sequence_complete',
+                    'sequence_index': current_sequence,
+                    'total_sequences': total_sequences_local,
+                    'sequence_name': seq_name,
+                    'chapters_completed': chapters_completed_total,
+                    'total_chapters': total_chapters_local,
+                    'message': f'「{seq_name}」处理完成（{len(cos)}章）'
+                }, ensure_ascii=False)}\n\n"
+                await asyncio.sleep(0.1)
+
+            # 保存结果
+            result_data = [o.model_dump() for o in all_outlines]
+            path = sm.state_dir / "chapter_outlines.json"
+            path.write_text(json.dumps(result_data, ensure_ascii=False, indent=2), encoding="utf-8")
+            
+            # 完成通知
+            yield f"data: {json.dumps({
+                'stage': 'complete',
+                'count': len(all_outlines),
+                'outlines': result_data,
+                'message': f'成功生成 {len(all_outlines)} 章大纲！'
+            }, ensure_ascii=False)}\n\n"
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            yield f"data: {json.dumps({'stage': 'error', 'message': f'生成失败：{str(e)}'}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
 
 
 # ── /api/action/*  三层审计 ───────────────────────────────────────────────────
