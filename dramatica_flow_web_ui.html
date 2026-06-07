@@ -2656,9 +2656,13 @@ function loadStep5() {
           <div class="card" style="margin-top:16px">
             <div class="card-header">&#9889; 快速写作</div>
             <div class="form-desc">跳过细纲，直接使用管线写下一章（含建筑师蓝图+审计修订）</div>
-            <div style="display:flex;gap:10px;margin-top:12px">
+            <div style="display:flex;gap:10px;margin-top:12px;align-items:flex-end">
               <button class="btn btn-primary" style="flex:1" onclick="doWrite(1)">写下一章</button>
               <button class="btn" style="flex:1" onclick="doWrite(3)">连续写 3 章</button>
+              <div style="flex:0.8;display:flex;gap:8px;align-items:center">
+                <input type="number" id="custom-chapter-count" class="form-input" min="1" max="100" value="5" style="width:80px;text-align:center">
+                <button class="btn btn-success" onclick="doCustomWrite()">连续写N章</button>
+              </div>
             </div>
             <textarea id="qw-style-override" class="form-input" rows="2" placeholder="本次写作风格（可选，留空不改）。修改后会更新书籍默认风格" style="margin-top:10px"></textarea>
             <div id="write-log" style="margin-top:10px"></div>
@@ -2957,7 +2961,95 @@ async function viewChapter(ch) {
   document.getElementById('modal-chapter').style.display = 'flex';
 }
 
-async function doWrite(count) {
+// SSE事件源变量
+let writeEventSource = null;
+
+function openWriteProgressModal() {
+  const modal = document.getElementById('modal-progress');
+  if (!modal) return;
+  modal.style.display = 'flex';
+  // 重置UI
+  document.getElementById('progress-percent').textContent = '0%';
+  document.getElementById('progress-bar').style.width = '0%';
+  document.getElementById('progress-sequence').textContent = '0 / 0';
+  document.getElementById('progress-chapters').textContent = '0 / 0';
+  document.getElementById('progress-message').textContent = '准备开始...';
+  document.getElementById('progress-log').innerHTML = '';
+  document.getElementById('sequence-indicators').innerHTML = '';
+  document.getElementById('progress-spinner').style.display = '';
+  document.getElementById('progress-close-btn').style.display = 'none';
+  document.getElementById('progress-title').textContent = 'AI正在写作中';
+}
+
+function closeWriteProgressModal() {
+  const modal = document.getElementById('modal-progress');
+  if (modal) modal.style.display = 'none';
+  if (writeEventSource) {
+    writeEventSource.close();
+    writeEventSource = null;
+  }
+}
+
+function updateWriteProgress(data) {
+  const totalChapters = data.total_chapters || 0;
+  const completed = data.completed_chapters || 0;
+  const percent = totalChapters > 0 ? Math.round((completed / totalChapters) * 100) : 0;
+  
+  // 更新进度条和百分比
+  const percentEl = document.getElementById('progress-percent');
+  const barEl = document.getElementById('progress-bar');
+  if (percentEl) percentEl.textContent = `${percent}%`;
+  if (barEl) barEl.style.width = `${percent}%`;
+  
+  // 更新章节计数
+  const chaptersEl = document.getElementById('progress-chapters');
+  if (chaptersEl) chaptersEl.textContent = `${completed} / ${totalChapters}`;
+  
+  // 更新消息
+  const messageEl = document.getElementById('progress-message');
+  if (messageEl) messageEl.textContent = data.message || '';
+  
+  // 更新日志
+  const logEl = document.getElementById('progress-log');
+  if (logEl && data.stage === 'log') {
+    const time = new Date().toLocaleTimeString();
+    logEl.innerHTML += `<div>[${time}] ${esc(data.message || '')}</div>`;
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+  
+  // 更新章节指示器
+  const indicatorsContainer = document.getElementById('sequence-indicators');
+  if (indicatorsContainer && totalChapters > 0 && indicatorsContainer.children.length === 0) {
+    indicatorsContainer.innerHTML = '';
+    for (let i = 1; i <= Math.min(totalChapters, 10); i++) {
+      const dot = document.createElement('div');
+      dot.className = 'sequence-dot';
+      dot.id = `chapter-dot-${i}`;
+      dot.textContent = i;
+      indicatorsContainer.appendChild(dot);
+    }
+    if (totalChapters > 10) {
+      const more = document.createElement('div');
+      more.style.padding = '4px 8px';
+      more.textContent = `+${totalChapters - 10}`;
+      indicatorsContainer.appendChild(more);
+    }
+  }
+  
+  if (data.stage === 'chapter_start' && data.chapter) {
+    for (let i = 1; i < data.chapter; i++) {
+      const dot = document.getElementById(`chapter-dot-${i}`);
+      if (dot) dot.className = 'sequence-dot completed';
+    }
+    const currentDot = document.getElementById(`chapter-dot-${data.chapter}`);
+    if (currentDot) currentDot.className = 'sequence-dot active';
+  } else if (data.stage === 'chapter_complete' && data.chapter) {
+    const dot = document.getElementById(`chapter-dot-${data.chapter}`);
+    if (dot) dot.className = 'sequence-dot completed';
+  }
+}
+
+async function doWriteStream(count) {
   if (!currentBook) return toast('请先选择书籍', false);
   count = count || 1;
   // 检查准备状态
@@ -2969,21 +3061,104 @@ async function doWrite(count) {
     const go = confirm('当前尚未生成故事大纲，系统将自动生成（AI 可能产出不稳定）。\n\n建议先手动生成大纲后再写作。\n\n是否仍要继续？');
     if (!go) return;
   }
-  const log = document.getElementById('write-log');
-  if (log) log.innerHTML = '<div class="loading" style="padding:12px">正在写作，请耐心等待（每章约 1-3 分钟）...</div>';
-  toast('正在使用管线写作...', 'loading');
+  
   // 如果填了风格，先保存到书籍配置
   const styleVal = document.getElementById('qw-style-override')?.value?.trim();
   if (styleVal) {
     try { await api(`/books/${currentBook.id}/config`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ style_guide: styleVal }) }); } catch(e) {}
   }
+  
+  openWriteProgressModal();
+  
   try {
-    const res = await api(`/action/write?book_id=${encodeURIComponent(currentBook.id)}&count=${count}`, {
-      method: 'POST',
-    });
-    if (res.ok) { toast('写作完成', true); await loadBookData(); loadStep5(); }
-    else { toast('写作失败', false); if (log) log.innerHTML = `<div style="font-size:12px;color:var(--red);white-space:pre-wrap;max-height:200px;overflow-y:auto">${res.stderr||res.stdout||'未知错误'}</div>`; }
-  } catch (e) { toast('请求失败: ' + e.message, false); }
+    const url = `${API}/action/write/stream?book_id=${encodeURIComponent(currentBook.id)}&count=${count}`;
+    writeEventSource = new EventSource(url);
+    
+    writeEventSource.onmessage = function(event) {
+      try {
+        const data = JSON.parse(event.data);
+        updateWriteProgress(data);
+        
+        if (data.stage === 'complete') {
+          writeEventSource.close();
+          writeEventSource = null;
+          // 显示完成按钮
+          document.getElementById('progress-spinner').style.display = 'none';
+          document.getElementById('progress-close-btn').style.display = '';
+          toast(`写作完成！成功完成${data.completed_chapters || count}章`, true);
+          setTimeout(async () => {
+            await loadBookData();
+            loadStep5();
+          }, 500);
+        } else if (data.stage === 'error') {
+          writeEventSource.close();
+          writeEventSource = null;
+          document.getElementById('progress-spinner').style.display = 'none';
+          document.getElementById('progress-close-btn').style.display = '';
+          toast('写作失败：' + (data.message || ''), false);
+        }
+      } catch (e) {
+        console.error('解析SSE消息失败:', e);
+      }
+    };
+    
+    writeEventSource.onerror = function(err) {
+      console.error('SSE连接错误:', err);
+      toast('连接中断，请重试', false);
+      if (writeEventSource) {
+        writeEventSource.close();
+        writeEventSource = null;
+      }
+      document.getElementById('progress-spinner').style.display = 'none';
+      document.getElementById('progress-close-btn').style.display = '';
+    };
+    
+  } catch (e) {
+    toast('请求失败: ' + e.message, false);
+    closeWriteProgressModal();
+  }
+}
+
+async function doWrite(count) {
+  // 旧版非流式功能保留，但优先使用流式
+  if (count === 1 || count === 3) {
+    await doWriteStream(count);
+  } else {
+    // 旧版逻辑
+    if (!currentBook) return toast('请先选择书籍', false);
+    count = count || 1;
+    const stage = bookData?.book?.stage || 0;
+    if (stage < 2) {
+      const go = confirm('当前尚未完成世界观设定，直接写作可能导致内容质量不佳。\n\n建议先完成以下步骤：\n1. 配置角色、世界观\n2. 生成故事大纲和章节大纲\n\n是否仍要继续写作？');
+      if (!go) return;
+    } else if (stage < 3) {
+      const go = confirm('当前尚未生成故事大纲，系统将自动生成（AI 可能产出不稳定）。\n\n建议先手动生成大纲后再写作。\n\n是否仍要继续？');
+      if (!go) return;
+    }
+    const log = document.getElementById('write-log');
+    if (log) log.innerHTML = '<div class="loading" style="padding:12px">正在写作，请耐心等待（每章约 1-3 分钟）...</div>';
+    toast('正在使用管线写作...', 'loading');
+    const styleVal = document.getElementById('qw-style-override')?.value?.trim();
+    if (styleVal) {
+      try { await api(`/books/${currentBook.id}/config`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ style_guide: styleVal }) }); } catch(e) {}
+    }
+    try {
+      const res = await api(`/action/write?book_id=${encodeURIComponent(currentBook.id)}&count=${count}`, { method: 'POST' });
+      if (res.ok) { toast('写作完成', true); await loadBookData(); loadStep5(); }
+      else { toast('写作失败', false); if (log) log.innerHTML = `<div style="font-size:12px;color:var(--red);white-space:pre-wrap;max-height:200px;overflow-y:auto">${res.stderr||res.stdout||'未知错误'}</div>`; }
+    } catch (e) { toast('请求失败: ' + e.message, false); }
+  }
+}
+
+async function doCustomWrite() {
+  if (!currentBook) return toast('请先选择书籍', false);
+  const countInput = document.getElementById('custom-chapter-count');
+  const count = parseInt(countInput?.value || '1');
+  if (isNaN(count) || count < 1) {
+    toast('请输入有效的章节数量', false);
+    return;
+  }
+  await doWriteStream(count);
 }
 
 // ── 续写 & 导入功能 ──────────────────────────────────────────────────────

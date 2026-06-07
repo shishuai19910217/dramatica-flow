@@ -3884,6 +3884,196 @@ async def ai_generate_chapter_content(book_id: str, req: ChapterContentReq):
     return {"ok": True, "chapter_number": req.chapter_number, "content": content, "chars": len(content)}
 
 
+@app.get("/api/action/write/stream")
+async def action_write_stream(book_id: str, count: int = 1):
+    """连续写N章（SSE流式输出）"""
+    from dotenv import load_dotenv
+    load_dotenv(ENV_PATH, override=True)
+    
+    async def event_generator():
+        try:
+            import sys
+            import subprocess
+            import threading
+            import asyncio
+            
+            cmd = [sys.executable, "-m", "cli.main", "write", book_id, "--count", str(count)]
+            
+            # 获取书籍信息用于进度展示
+            from core.state import StateManager
+            from core.setup import SetupLoader
+            from core.narrative import StoryOutlineSchema
+            
+            sm = StateManager(".", book_id)
+            try:
+                state = SetupLoader.restore(".", book_id)
+            except:
+                state = None
+            
+            total_outlines = 0
+            try:
+                outline_path = sm.state_dir / "chapter_outlines.json"
+                if outline_path.exists():
+                    import json
+                    raw = json.loads(outline_path.read_text(encoding="utf-8"))
+                    total_outlines = len(raw)
+            except:
+                pass
+            
+            # 计算总章节数
+            total_chapters_for_progress = total_outlines if total_outlines > 0 else count
+            
+            yield f"data: {json.dumps({'stage': 'init', 'message': '准备开始写作...', 'total_outlines': total_outlines, 'total_chapters': total_chapters_for_progress}, ensure_ascii=False)}\n\n"
+            await asyncio.sleep(0.1)
+            
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                env={**os.environ},
+                bufsize=1,
+                universal_newlines=True
+            )
+            
+            stdout_output = []
+            current_chapter = 0
+            current_chapter_title = ""
+            completed_chapters = 0
+            
+            loop = asyncio.get_running_loop()
+            
+            def read_output():
+                nonlocal current_chapter, current_chapter_title, completed_chapters
+                try:
+                    for line in process.stdout:
+                        print(line, end="")
+                        stdout_output.append(line)
+                        
+                        # 解析进度信息
+                        line_stripped = line.strip()
+                        
+                        # 检测开始新章节
+                        if line_stripped.startswith("第") and "章《" in line_stripped:
+                            import re
+                            ch_match = re.search(r"第\s*(\d+)\s*章《(.*?)》", line_stripped)
+                            if ch_match:
+                                nonlocal current_chapter, current_chapter_title
+                                current_chapter = int(ch_match.group(1))
+                                current_chapter_title = ch_match.group(2)
+                                # 发送章节开始事件
+                                payload = {
+                                    "stage": "chapter_start",
+                                    "chapter": current_chapter,
+                                    "title": current_chapter_title,
+                                    "message": f"开始写作第{current_chapter}章《{current_chapter_title}》",
+                                    "completed_chapters": completed_chapters,
+                                    "total_chapters": total_chapters_for_progress
+                                }
+                                asyncio.run_coroutine_threadsafe(
+                                    asyncio.sleep(0),
+                                    loop
+                                ).result()
+                                yield_event = f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                                try:
+                                    loop.call_soon_threadsafe(lambda e=yield_event: event_queue.put_nowait(e))
+                                except:
+                                    pass
+                        
+                        # 检测章节完成
+                        elif ("审计" in line_stripped and ("通过" in line_stripped or "未通过" in line_stripped)) or ("字" in line_stripped and "因果链" in line_stripped):
+                            if current_chapter > 0:
+                                completed_chapters += 1
+                                # 发送章节完成事件
+                                payload = {
+                                    "stage": "chapter_complete",
+                                    "chapter": current_chapter,
+                                    "title": current_chapter_title,
+                                    "message": f"第{current_chapter}章《{current_chapter_title}》写作完成",
+                                    "completed_chapters": completed_chapters,
+                                    "total_chapters": total_chapters_for_progress
+                                }
+                                yield_event = f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                                try:
+                                    loop.call_soon_threadsafe(lambda e=yield_event: event_queue.put_nowait(e))
+                                except:
+                                    pass
+                                    
+                        # 发送原始日志
+                        log_payload = {
+                            "stage": "log",
+                            "message": line_stripped
+                        }
+                        yield_event = f"data: {json.dumps(log_payload, ensure_ascii=False)}\n\n"
+                        try:
+                            loop.call_soon_threadsafe(lambda e=yield_event: event_queue.put_nowait(e))
+                        except:
+                            pass
+                except Exception as e:
+                    print(f"读取错误: {e}")
+                    pass
+            
+            event_queue = asyncio.Queue()
+            
+            read_thread = threading.Thread(target=read_output)
+            read_thread.daemon = True
+            read_thread.start()
+            
+            # 从队列读取并yield事件
+            timeout = 1200  # 20分钟
+            start_time = asyncio.get_event_loop().time()
+            
+            while True:
+                try:
+                    if process.poll() is not None:
+                        break
+                    
+                    if asyncio.get_event_loop().time() - start_time > timeout:
+                        process.kill()
+                        yield f"data: {json.dumps({'stage': 'error', 'message': '写作超时（20分钟）'}, ensure_ascii=False)}\n\n"
+                        break
+                    
+                    try:
+                        event = await asyncio.wait_for(event_queue.get(), timeout=0.5)
+                        yield event
+                    except asyncio.TimeoutError:
+                        continue
+                except Exception as e:
+                    print(f"事件错误: {e}")
+                    break
+            
+            # 等待读取线程结束
+            try:
+                read_thread.join(timeout=5)
+            except:
+                pass
+            
+            stdout_str = "".join(stdout_output)
+            ok = process.returncode == 0
+            
+            if ok:
+                yield f"data: {json.dumps({'stage': 'complete', 'message': f'成功完成{completed_chapters}章写作', 'completed_chapters': completed_chapters}, ensure_ascii=False)}\n\n"
+            else:
+                yield f"data: {json.dumps({'stage': 'error', 'message': '写作失败，请检查日志', 'stdout': stdout_str[-1000:]}, ensure_ascii=False)}\n\n"
+                
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            yield f"data: {json.dumps({'stage': 'error', 'message': f'执行出错：{str(e)}'}, ensure_ascii=False)}\n\n"
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+
 @app.post("/api/action/write")
 def action_write(book_id: str, count: int = 1):
     from dotenv import load_dotenv
