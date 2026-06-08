@@ -160,6 +160,39 @@ class EmotionalBeat:
 
 
 @dataclass
+class CharacterFlaw:
+    """角色执念型性格缺陷——人物成长的核心根基"""
+    name: str                # 缺陷名称
+    description: str         # 缺陷描述
+    origin: str              # 缺陷来源（童年创伤/过往经历）
+    impact: str              # 对角色行为的影响
+    breaking_point: str = "" # 可能打破执念的触发点
+
+@dataclass
+class CharacterContrast:
+    """角色反差设定——显性标签与隐藏特质的对比"""
+    surface_label: str       # 大众熟知的表层标签（如"唯利是图的外卖员"）
+    hidden_truth: str        # 颠覆性的隐藏反差（如"身负时间回溯异能"）
+    reveal_chapter: int | None = None  # 反差揭示章节（0=已揭示）
+
+@dataclass
+class DilemmaTrial:
+    """两难抉择试炼——倒逼人物成长的关键节点"""
+    chapter: int
+    situation: str           # 抉择情境
+    choice: str              # 角色选择
+    consequence: str         # 选择后果
+    growth_impact: str       # 对人物成长的影响
+
+@dataclass
+class CharacterHighlight:
+    """配角高光时刻——提升群像质感"""
+    chapter: int
+    type: Literal["action", "emotion", "growth", "sacrifice"]  # 高光类型
+    description: str         # 高光场景描述
+    purpose: str             # 服务的主线目的
+
+@dataclass
 class Character:
     id: str
     name: str
@@ -177,6 +210,14 @@ class Character:
     # 动态动机系统：每个重要角色拥有独立的因果链
     current_goal: str = ""          # 当前短期目标（随剧情变化）
     hidden_agenda: str = ""         # 隐藏动机（其他角色/读者可能不知道）
+    # ── 番茄人设优化扩展 ──
+    contrast: CharacterContrast | None = None  # 角色反差设定
+    flaw: CharacterFlaw | None = None          # 执念型性格缺陷
+    dilemma_trials: list[DilemmaTrial] = field(default_factory=list)  # 两难抉择记录
+    # ── 配角差异化字段 ──
+    unique_function: str = ""       # 专属戏剧功能（避免功能重叠）
+    highlight_moments: list[CharacterHighlight] = field(default_factory=list)  # 高光时刻安排
+    arc_progress: int = 0           # 成长弧光进度（0-100）
 
 
 # ── 叙事线程（多线叙事核心）───────────────────────────────────────────────
@@ -268,6 +309,33 @@ class WorldRule:
     description: str
     consequence: str  # 违反规则的后果
     is_hard: bool     # 不可违反的硬规则
+    # ── 番茄优化扩展 ──
+    rule_type: Literal["physical", "magical", "social", "moral"] = "physical"  # 规则类型
+    scope: str = "global"  # 适用范围（global/region/faction/specific）
+    exceptions: list[str] = field(default_factory=list)  # 规则例外情况
+    conflict_with: list[str] = field(default_factory=list)  # 与哪些规则可能冲突
+    verification_chapter: int = 0  # 规则验证章节（首次出现规则的章节）
+
+@dataclass
+class RuleConflict:
+    """规则冲突检测结果"""
+    rule1_id: str
+    rule2_id: str
+    conflict_type: Literal["direct", "indirect", "scope"]  # 直接冲突/间接冲突/范围冲突
+    description: str
+    severity: Literal["critical", "warning", "info"]
+    suggested_fix: str = ""
+
+@dataclass
+class HookRecoveryWarning:
+    """伏笔回收警告"""
+    hook_id: str
+    hook_description: str
+    planted_chapter: int
+    current_chapter: int
+    expected_range: tuple[int, int]
+    status: Literal["pending", "overdue", "critical"]  # pending=正常等待/overdue=超期/critical=严重超期
+    days_overdue: int = 0
 
 
 # ── 事件与因果 ────────────────────────────────────────────────────────────────

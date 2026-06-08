@@ -224,22 +224,28 @@ class WriterOutput:
 
 
 WRITER_SYSTEM_PROMPT = """\
-你是一位优秀的中文小说写手，专注于{genre}题材。
+你是一位经验丰富的番茄小说签约作家，专注于{genre}题材，深谙番茄平台爆款逻辑。
 
-## 创作铁律（不可违反）
-1. 只写动作、感知、对话——不替读者下结论，不做心理分析式独白
-2. 冲突必须源于角色目标与障碍的碰撞，绝对不靠巧合推进
-3. 每个场景必须推进叙事 OR 揭示角色，二者至少占其一
-4. 场景结尾状态必须比开始更极端（更好/更坏/意外转折）
-5. 对话要有潜台词，人物说的话和真正想说的话之间要有张力
+## 平台核心铁律（不可违反）
+1. **节奏为王**：每500字一个小起伏（小打脸、金手指生效、危机闪现、线索更新），三章一小爆、十章一大爆
+2. **钩子致命**：每章结尾必须设置不可逆新危机、颠覆性新线索、宿命感新羁绊三者其一，做到非看不可
+3. **情绪密集**：每3章落地1次强情绪爆点（愤怒/委屈/狂喜/揪心），情绪点绑定人性/认知碰撞
+4. **人物立住**：主角必须有显性标签+隐藏反差+固化性格短板，配角功能差异化、每人有独立弧光
+5. **冲突落地**：冲突必须源于角色目标与障碍的碰撞，绝对不靠巧合推进
 
-## 语言规范
-- AI 标记词（仿佛/忽然/竟然/不禁/宛如/猛地/顿时）：每 3000 字各最多 1 次
-- 绝对禁止：元叙事（核心动机/叙事节奏/人物弧线）
-- 绝对禁止：报告式语言（分析了形势/从…角度来看/综合考虑）
-- 绝对禁止：作者说教（显然/不言而喻/毫无疑问）
-- 绝对禁止：集体反应套话（全场震惊/众人哗然/所有人都）
-- 破折号「——」：全书最多用 3 次，珍惜使用
+## 语言规范（番茄调性）
+- **口语化表达**：使用短句、口语化词汇，避免书面化生硬表达，符合移动端阅读习惯
+- **具象化描写**：用动作+感官+细节替代抽象情绪描写（例：不说"害怕"，写"后背冷汗浸透衣衫，牙关死死绷紧"）
+- **AI味清零**：彻底杜绝AI套路词（仿佛/忽然/竟然/不禁/宛如/猛地/顿时/瞬间/刹那/骤然），每3000字各最多1次
+- **冗余删除**：删除多余"的、地、得"，用精准动词替代冗余修饰词
+- **排版适配**：单段文字≤3行，对话单独成行，关键动作/情绪/反转单独成段
+
+## 绝对禁止
+- 元叙事（核心动机/叙事节奏/人物弧线）
+- 报告式语言（分析了形势/从…角度来看/综合考虑）
+- 作者说教（显然/不言而喻/毫无疑问）
+- 集体反应套话（全场震惊/众人哗然/所有人都）
+- 破折号「——」：全书最多用3次，珍惜使用
 
 ## 写后必须输出结算表
 正文写完后，用 ===SETTLEMENT=== 分隔，输出 JSON 结算表。"""
@@ -379,6 +385,21 @@ class WriterAgent:
 - 警告：超过上限将直接被拒绝，少于下限将被要求重写
 - 策略：先规划好场景长度，避免写太多后被迫大幅删减。如果感觉内容过多，请提前精简描写。
 
+### 节奏与钩子要求（番茄平台硬性标准）
+- **节奏密度**：每500字一个小起伏（小打脸、金手指生效、危机闪现、线索更新），杜绝平淡水文
+- **结尾钩子**：本章结尾必须设置以下三者其一：
+  1. 不可逆新危机（主角陷入绝境、关键人物死亡、核心目标受阻）
+  2. 颠覆性新线索（身世秘密曝光、反转真相揭示、隐藏反派现身）
+  3. 宿命感新羁绊（命运对决开启、情感关系剧变、生死契约缔结）
+- **情绪爆点**：本章至少设置1次强情绪爆点（愤怒/委屈/狂喜/揪心），并绑定人性/认知层面的碰撞
+- **排版适配**：单段文字≤3行，对话单独成行，关键动作/情绪/反转单独成段
+
+### 语言风格要求（番茄调性）
+- 使用短句口语化表达，避免书面化生硬语言
+- 用动作+感官+细节替代抽象情绪描写
+- 彻底杜绝AI套路词（仿佛/忽然/竟然/不禁/宛如/猛地/顿时/瞬间/刹那/骤然）
+- 删除多余"的、地、得"，用精准动词替代冗余修饰词
+
 ---
 请直接开始写正文，写完后输出：
 {SETTLEMENT_SEPARATOR}
@@ -392,29 +413,25 @@ class WriterAgent:
             parts = resp.content.split(SETTLEMENT_SEPARATOR, 1)
             content = parts[0].strip()
 
-            # ── 字数自动处理 ──
+            # ── 字数自动处理（硬性约束闭环） ──
             content_length = len(content)
             max_length = int(target_words * 1.2)  # 硬性上限
             min_length = int(target_words * 0.8)  # 硬性下限
+            ideal_length = int(target_words * 1.1)  # 理想上限
             
             if content_length > max_length:
-                # 超过上限，自动截断到目标字数
-                # 找到合适的截断位置（在句子结尾或段落结尾）
-                truncate_at = int(target_words * 1.1)
-                if truncate_at < len(content):
-                    # 尝试在句子结尾截断
-                    for i in range(truncate_at, min(len(content), truncate_at + 50)):
-                        if content[i] in ('。', '！', '？', '；', ':', '\n', ' '):
-                            content = content[:i+1].strip()
-                            break
-                    else:
-                        # 如果没找到合适位置，直接截断
-                        content = content[:truncate_at].strip() + "..."
+                # 超过硬性上限，触发压缩重写机制
+                over_ratio = content_length / target_words
+                if over_ratio > 1.5:
+                    # 严重超字数（超过50%），触发AI压缩重写
+                    content = self._compress_chapter(content, target_words)
+                else:
+                    # 轻微超字数，智能截断
+                    content = self._smart_truncate(content, ideal_length)
             
             elif content_length < min_length:
-                # 少于下限，标记需要补充
-                # 这里我们不重写，让后续修订流程处理
-                pass
+                # 少于下限，触发补写机制
+                content = self._expand_chapter(content, target_words)
 
             settlement = PostWriteSettlement()
             if len(parts) > 1:
@@ -435,6 +452,80 @@ class WriterAgent:
             return WriterOutput(content=content, settlement=settlement)
 
         return with_retry(_call)
+
+    def _smart_truncate(self, content: str, target_length: int) -> str:
+        """智能截断：在句子结尾或段落结尾截断，保持内容完整性"""
+        if len(content) <= target_length:
+            return content
+        
+        # 尝试在句子结尾截断
+        for i in range(target_length, min(len(content), target_length + 100)):
+            if content[i] in ('。', '！', '？', '；', '\n', ' '):
+                return content[:i+1].strip()
+        
+        # 如果没找到合适位置，在段落边界截断
+        for i in range(target_length, min(len(content), target_length + 50)):
+            if content[i] == '\n':
+                return content[:i].strip()
+        
+        # 兜底：直接截断并添加省略号
+        return content[:target_length].strip() + "..."
+    
+    def _compress_chapter(self, content: str, target_words: int) -> str:
+        """压缩重写：让AI将内容压缩到目标字数"""
+        compress_prompt = f"""请将以下章节内容压缩精简到约{target_words}字，保持故事完整性和连贯性：
+
+【原文】
+{content}
+
+【要求】
+1. 删除冗余描写和重复内容
+2. 合并相似场景
+3. 精简对话，但保留关键信息
+4. 保持情节连贯和结尾钩子
+5. 不要改变故事主线和人物关系
+
+请直接输出压缩后的正文："""
+        
+        resp = self.llm.complete([
+            LLMMessage("system", "你是专业的小说编辑，擅长精简压缩小说内容，保持故事核心不变。"),
+            LLMMessage("user", compress_prompt),
+        ])
+        
+        compressed = resp.content.strip()
+        # 再次检查，如果仍超字数，进行智能截断
+        if len(compressed) > int(target_words * 1.2):
+            compressed = self._smart_truncate(compressed, int(target_words * 1.1))
+        
+        return compressed
+    
+    def _expand_chapter(self, content: str, target_words: int) -> str:
+        """补写扩展：让AI将内容补充到目标字数"""
+        expand_prompt = f"""请将以下章节内容扩展到约{target_words}字，保持故事连贯性：
+
+【现有内容】
+{content}
+
+【要求】
+1. 增加细节描写（环境、动作、心理）
+2. 丰富对话内容
+3. 添加过渡场景
+4. 保持情节连贯
+5. 不要改变故事主线
+
+请直接输出扩展后的正文："""
+        
+        resp = self.llm.complete([
+            LLMMessage("system", "你是专业的小说作家，擅长丰富扩展小说内容，保持故事流畅。"),
+            LLMMessage("user", expand_prompt),
+        ])
+        
+        expanded = resp.content.strip()
+        # 检查是否超过上限
+        if len(expanded) > int(target_words * 1.2):
+            expanded = self._smart_truncate(expanded, int(target_words * 1.1))
+        
+        return expanded
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -485,32 +576,209 @@ class _AuditReportSchema(BaseModel):
     overall_note: str = ""
 
 
-# ── 四大审计维度框架（整合用户设计） ──────────────────────────────────────────
-# 第一维度：大纲对齐审计
-# 第二维度：人设逻辑审计  
-# 第三维度：节奏合规审计
-# 第四维度：逻辑性审计
+# ── 番茄五大维度量化审计框架（对标平台审核标准） ──────────────────────────────
+# 维度1：钩子与章节留存（20分）
+# 维度2：剧情节奏与紧凑度（20分）
+# 维度3：语言风格与移动端阅读性（20分）
+# 维度4：逻辑、人设与世界观自洽（20分）
+# 维度5：内容吸引力与核心看点（20分）
+
+# AI套路词列表（用于检测AI味）
+AI_WORDS = ["仿佛", "忽然", "竟然", "不禁", "宛如", "猛地", "顿时", "瞬间", "刹那", "骤然"]
+
+# AI味替换映射
+AI_WORD_REPLACEMENTS = {
+    "仿佛": "好像",
+    "忽然": "突然",
+    "竟然": "居然",
+    "不禁": "忍不住",
+    "宛如": "好像",
+    "猛地": "突然",
+    "顿时": "立刻",
+    "瞬间": "转眼",
+    "刹那": "转眼",
+    "骤然": "突然",
+}
+
+# 抽象情绪到具象动作的映射
+EMOTION_TO_ACTION = {
+    "害怕": ["后背冷汗浸透衣衫", "牙关死死绷紧", "指尖微微颤抖", "心脏狂跳不止"],
+    "愤怒": ["拳头攥得咯咯响", "太阳穴突突直跳", "眼神骤然变冷", "咬牙切齿"],
+    "悲伤": ["眼眶瞬间泛红", "喉咙像是被堵住", "肩膀微微颤抖", "泪水无声滑落"],
+    "喜悦": ["嘴角不自觉上扬", "眼睛瞬间亮了", "脚步都轻快起来", "心里像喝了蜜"],
+    "震惊": ["瞳孔骤然收缩", "猛地站起身来", "呼吸都停滞了", "大脑一片空白"],
+}
+
+# 报告式语言替换
+REPORT_LANGUAGE_REPLACEMENTS = {
+    "分析了形势": "想了想当前情况",
+    "从…角度来看": "换个角度想",
+    "综合考虑": "权衡之后",
+    "显然": "",
+    "不言而喻": "",
+    "毫无疑问": "",
+}
+
+# 集体反应套话替换
+COLLECTIVE_PHRASES = [
+    "全场震惊", "众人哗然", "所有人都", "全场瞩目", "众人皆知",
+    "大家都", "所有人", "全场鸦雀无声", "一片哗然",
+]
+
+
+def detect_ai_flavor(text: str) -> list[tuple[str, int, str]]:
+    """检测文本中的AI味"""
+    issues = []
+    
+    # 检测AI套路词
+    for word in AI_WORDS:
+        count = text.count(word)
+        if count > 0:
+            issues.append((word, count, f"AI套路词'{word}'出现{count}次"))
+    
+    # 检测报告式语言
+    for phrase, replacement in REPORT_LANGUAGE_REPLACEMENTS.items():
+        if phrase in text:
+            count = text.count(phrase)
+            issues.append((phrase, count, f"报告式语言'{phrase}'出现{count}次"))
+    
+    # 检测集体反应套话
+    for phrase in COLLECTIVE_PHRASES:
+        if phrase in text:
+            count = text.count(phrase)
+            issues.append((phrase, count, f"集体反应套话'{phrase}'出现{count}次"))
+    
+    return issues
+
+
+def reduce_ai_flavor(text: str) -> str:
+    """降低文本中的AI味"""
+    # 替换AI套路词
+    for word, replacement in AI_WORD_REPLACEMENTS.items():
+        text = text.replace(word, replacement)
+    
+    # 替换报告式语言
+    for phrase, replacement in REPORT_LANGUAGE_REPLACEMENTS.items():
+        text = text.replace(phrase, replacement)
+    
+    # 删除集体反应套话
+    for phrase in COLLECTIVE_PHRASES:
+        text = text.replace(phrase, "")
+    
+    return text
+
+
+def convert_to_conversational(text: str) -> str:
+    """将书面化语言转换为口语化"""
+    # 替换抽象情绪为具象动作
+    for emotion, actions in EMOTION_TO_ACTION.items():
+        if emotion in text:
+            # 随机选择一个具象动作替换
+            import random
+            action = random.choice(actions)
+            text = text.replace(f"心里{emotion}", action)
+            text = text.replace(f"感到{emotion}", action)
+            text = text.replace(f"十分{emotion}", action)
+            text = text.replace(f"非常{emotion}", action)
+            text = text.replace(f"心里十分{emotion}", action)
+            text = text.replace(f"心里非常{emotion}", action)
+    
+    # 删除冗余的"的、地、得"
+    text = text.replace("非常的", "非常")
+    text = text.replace("十分的", "十分")
+    text = text.replace("特别的", "特别")
+    
+    # 简化复杂句式
+    text = text.replace("进行了", "做了")
+    text = text.replace("进行", "做")
+    text = text.replace("使得", "让")
+    text = text.replace("因此", "所以")
+    text = text.replace("然而", "但")
+    text = text.replace("与此同时", "这时")
+    
+    return text
+
+
+def optimize_paragraphs(text: str, max_lines: int = 3) -> str:
+    """优化段落排版，确保单段≤max_lines行"""
+    paragraphs = text.split("\n\n")
+    optimized = []
+    
+    for para in paragraphs:
+        lines = para.split("\n")
+        # 如果段落行数超过限制，进行拆分
+        if len(lines) > max_lines:
+            # 在合适的位置拆分（逗号、句号、分号后）
+            current_chunk = []
+            for line in lines:
+                current_chunk.append(line)
+                if len(current_chunk) >= max_lines and (line.endswith("。") or line.endswith("！") or line.endswith("？") or line.endswith("；")):
+                    optimized.append("\n".join(current_chunk))
+                    current_chunk = []
+            if current_chunk:
+                optimized.append("\n".join(current_chunk))
+        else:
+            optimized.append(para)
+    
+    return "\n\n".join(optimized)
+
+# 评分梯度标准
+SCORE_GRADIENTS = {
+    "excellent": (18, 20),
+    "good": (12, 17),
+    "fair": (6, 11),
+    "poor": (0, 5),
+}
+
+def calculate_dimension_score(issue_count: int, severity_counts: dict) -> int:
+    """计算单维度评分（0-20分）"""
+    if issue_count == 0:
+        return 20
+    score = 20
+    # critical 问题：每个扣5分
+    score -= severity_counts.get("critical", 0) * 5
+    # warning 问题：每个扣2分
+    score -= severity_counts.get("warning", 0) * 2
+    # info 问题：每个扣0.5分
+    score -= severity_counts.get("info", 0) * 0.5
+    return max(0, min(20, round(score)))
+
+def get_risk_level(score: int) -> str:
+    """根据分数获取风险等级"""
+    if score >= 18:
+        return "正常"
+    elif score >= 12:
+        return "轻微风险"
+    elif score >= 6:
+        return "中度风险"
+    else:
+        return "高危风险"
 
 AUDIT_DIMENSIONS = [
-    # ── 大纲对齐审计 ──
-    "大纲偏离（本章是否完成了所有 mandatory_tasks，核心冲突是否落地，是否偏离章纲）",
-    "因果一致性（每个事件的发生是否有前因，是否靠巧合推进，是否符合因果链）",
-    "伏笔管理（新开伏笔是否有铺垫，已声明回收的伏笔是否在正文中落地）",
-    # ── 人设逻辑审计 ──
-    "OOC（角色行为是否符合性格锁定，性格锁定的事绝对不能做）",
-    "信息边界（角色是否知道了他不应知道的信息，信息获取是否有合理来源）",
-    "连续性（角色位置/道具/时间线/称谓/数值是否前后一致）",
-    "情感弧线（本章情感弧是否符合章纲目标，情绪变化是否有足够铺垫，是否符合四大故事线）",
-    # ── 节奏合规审计 ──
-    "节奏（快场景与慢场景的分配是否合理，是否有张弛，是否符合三幕式节奏）",
-    "结尾钩子（章末钩子是否有效实现，是否能驱动读者继续读）",
-    "冲突质量（每个场景的冲突是否源于角色目标与障碍的张力，不靠巧合）",
-    "去AI味（AI标记词密度、套话、元叙事、报告式语言、集体反应）",
-    # ── 多线叙事扩展审计 ──
-    "跨线程一致性（多线叙事时，不同线程的角色位置/时间线/信息是否冲突）",
-    # ── 逻辑性审计 ──
-    "事实准确性（描述是否符合常识和设定，如「死在人手里」应明确是「死在自己人手里」）",
-    "表达准确性（语义是否精准，避免歧义或模糊表述，修饰词是否使用恰当）",
+    # ── 维度1：钩子与章节留存 ──
+    "结尾钩子（必须落地新危机/新悬念/新反转/新伏笔/新冲突其一，禁止平淡收尾）",
+    "钩子有效性（钩子是否具备不可逆性、颠覆性、宿命感）",
+    # ── 维度2：剧情节奏与紧凑度 ──
+    "节奏密度（每500字应有小起伏，避免平淡水文）",
+    "冲突质量（每个场景的冲突是否源于角色目标与障碍的碰撞）",
+    "无效注水（纯环境堆砌、无意义心理空想、重复赘述、空泛铺垫占比≤20%）",
+    # ── 维度3：语言风格与移动端阅读性 ──
+    "口语化表达（避免书面化生硬语言，符合番茄调性）",
+    "AI味检测（AI套路词密度、套话、元叙事、报告式语言）",
+    "排版适配（单段≤3行，对话单独成行，关键内容突出）",
+    "语句流畅度（无病句错字、行文自然）",
+    # ── 维度4：逻辑、人设与世界观自洽 ──
+    "人设一致性（角色行为是否符合性格锁定，无OOC）",
+    "信息边界（角色是否知道不应知道的信息）",
+    "连续性（角色位置/道具/时间线/称谓/数值前后一致）",
+    "世界观自洽（符合设定规则，无逻辑矛盾）",
+    "伏笔管理（新开伏笔有铺垫，已声明回收的伏笔在正文中落地）",
+    "因果一致性（每个事件的发生有前因，不靠巧合推进）",
+    # ── 维度5：内容吸引力与核心看点 ──
+    "爽点密度（每3章至少1次强情绪爆点：愤怒/委屈/狂喜/揪心）",
+    "情绪起伏（情绪变化自然，有张力）",
+    "配角塑造（配角有独立存在感，无工具人问题）",
+    "剧情看点（冲突持续，无流水账）",
 ]
 
 
