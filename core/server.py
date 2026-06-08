@@ -3615,7 +3615,7 @@ def save_detailed_outline(book_id: str, chapter: int, data: dict):
     return {"ok": True}
 
 
-@app.post("/api/books/{book_id}/ai-generate/chapter-content")
+@app.post("/api/books/{book_id}/ai-generate/方法")
 async def ai_generate_chapter_content(book_id: str, req: ChapterContentReq):
     """基于细纲生成单章正文（含完整上下文注入 + 写后状态更新）"""
     _load_env()
@@ -3746,7 +3746,13 @@ async def ai_generate_chapter_content(book_id: str, req: ChapterContentReq):
 {recent_summaries if recent_summaries.strip() else '（这是早期章节）'}
 
 ## 写作要求
-- **字数硬性要求：正文必须达到 {int(target_words*0.9)}～{target_words} 字，不能少于 {int(target_words*0.8)} 字。每个场景都要充分展开，不能压缩跳过。**
+- **字数硬性要求（必须遵守）：**
+  - 目标字数：{target_words} 字
+  - 允许范围：{int(target_words*0.9)}–{int(target_words*1.1)} 字（±10%）
+  - 硬性上限：绝对不能超过 {int(target_words*1.2)} 字
+  - 硬性下限：绝对不能少于 {int(target_words*0.8)} 字
+  - 警告：超过上限将直接被拒绝，少于下限将被要求重写
+  - 策略：先规划好场景长度，避免写太多后被迫大幅删减。如果感觉内容过多，请提前精简描写。
 - 本章开头必须与前一章结尾自然衔接，不能突兀跳转
 - 场景之间要有自然过渡
 - 对话要有角色个性，体现角色关系
@@ -3773,6 +3779,23 @@ async def ai_generate_chapter_content(book_id: str, req: ChapterContentReq):
     except Exception as e:
         import traceback; traceback.print_exc()
         raise HTTPException(500, f"正文生成失败：{e}")
+
+    # ── 字数自动处理 ──
+    content_length = len(content)
+    max_length = int(target_words * 1.2)  # 硬性上限
+    min_length = int(target_words * 0.8)  # 硬性下限
+    
+    if content_length > max_length:
+        # 超过上限，自动截断到目标字数
+        truncate_at = int(target_words * 1.1)
+        if truncate_at < len(content):
+            # 尝试在句子结尾截断
+            for i in range(truncate_at, min(len(content), truncate_at + 50)):
+                if content[i] in ('。', '！', '？', '；', ':', '\n', ' '):
+                    content = content[:i+1].strip()
+                    break
+            else:
+                content = content[:truncate_at].strip() + "..."
 
     # 保存草稿
     sm.save_draft(req.chapter_number, content)

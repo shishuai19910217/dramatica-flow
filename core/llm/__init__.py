@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -15,6 +16,54 @@ from typing import Any, Callable, TypeVar
 from pydantic import BaseModel, ValidationError
 
 T = TypeVar("T", bound=BaseModel)
+
+
+# ── 提示词打印工具函数 ────────────────────────────────────────────────────────────────
+
+
+def _print_llm_prompt(messages: list[LLMMessage], config: LLMConfig | None = None, is_stream: bool = False):
+    """
+    清晰格式化打印 LLM 提示词到控制台
+    
+    Args:
+        messages: LLM 消息列表
+        config: LLM 配置（可选）
+        is_stream: 是否为流式调用
+    """
+    print("\n" + "=" * 80)
+    print("LLM Prompt:")
+    print("=" * 80)
+    
+    # 打印配置信息（如果有）
+    if config:
+        print(f"\n[Configuration]")
+        print(f"  Model: {config.model}")
+        print(f"  Temperature: {config.temperature}")
+        if config.max_tokens > 0:
+            print(f"  Max Tokens: {config.max_tokens}")
+        print(f"  Stream: {'Yes' if is_stream else 'No'}")
+    
+    print("\n" + "-" * 80)
+    
+    # 打印每条消息
+    for i, msg in enumerate(messages):
+        role_display = {
+            "system": "SYSTEM",
+            "user": "USER",
+            "assistant": "ASSISTANT"
+        }.get(msg.role, msg.role.upper())
+        
+        print(f"\n[{role_display} Message {i+1}]")
+        print("-" * 80)
+        
+        # 格式化输出内容，自动换行
+        content_lines = msg.content.split('\n')
+        for line in content_lines:
+            print(line)
+    
+    print("\n" + "=" * 80)
+    print("End of LLM Prompt")
+    print("=" * 80 + "\n")
 
 
 # ── 数据结构 ──────────────────────────────────────────────────────────────────
@@ -100,6 +149,9 @@ class DeepSeekProvider(LLMProvider):
         return kwargs
 
     def complete(self, messages: list[LLMMessage]) -> LLMResponse:
+        # 打印提示词
+        _print_llm_prompt(messages, self.config, is_stream=False)
+        
         response = self.client.chat.completions.create(
             messages=[m.to_dict() for m in messages], **self._build_kwargs(stream=False))
         content = response.choices[0].message.content or ""
@@ -111,6 +163,9 @@ class DeepSeekProvider(LLMProvider):
         )
 
     def stream(self, messages: list[LLMMessage], on_chunk: Callable[[str], None]) -> LLMResponse:
+        # 打印提示词
+        _print_llm_prompt(messages, self.config, is_stream=True)
+        
         full_content = ""
         stream = self.client.chat.completions.create(
             messages=[m.to_dict() for m in messages], **self._build_kwargs(stream=True))
@@ -156,6 +211,9 @@ class OllamaProvider(LLMProvider):
         return kwargs
 
     def complete(self, messages: list[LLMMessage]) -> LLMResponse:
+        # 打印提示词
+        _print_llm_prompt(messages, self.config, is_stream=False)
+        
         response = self.client.chat.completions.create(
             messages=[m.to_dict() for m in messages], **self._build_kwargs(stream=False))
         content = response.choices[0].message.content or ""
@@ -167,6 +225,9 @@ class OllamaProvider(LLMProvider):
         )
 
     def stream(self, messages: list[LLMMessage], on_chunk: Callable[[str], None]) -> LLMResponse:
+        # 打印提示词
+        _print_llm_prompt(messages, self.config, is_stream=True)
+        
         full_content = ""
         stream = self.client.chat.completions.create(
             messages=[m.to_dict() for m in messages], **self._build_kwargs(stream=True))

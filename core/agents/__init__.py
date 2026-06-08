@@ -371,12 +371,13 @@ class WriterAgent:
 ### 高风险连续性点（写时注意）
 {blueprint.pre_write_checklist.risk_scan}
 
-### 字数要求（硬性约束）
+### 字数要求（硬性约束，必须遵守）
 - 目标字数：{target_words} 字
 - 允许范围：{int(target_words*0.9)}–{int(target_words*1.1)} 字（±10%）
-- 硬性上限：不得超过 {int(target_words*1.3)} 字
-- 硬性下限：不得低于 {int(target_words*0.7)} 字
-- 要求：请严格控制字数，在允许范围内完成写作。如果内容过多，请精简冗余描写；如果内容不足，请丰富细节。字数超出范围将被视为不符合要求。
+- 硬性上限：绝对不能超过 {int(target_words*1.2)} 字
+- 硬性下限：绝对不能少于 {int(target_words*0.8)} 字
+- 警告：超过上限将直接被拒绝，少于下限将被要求重写
+- 策略：先规划好场景长度，避免写太多后被迫大幅删减。如果感觉内容过多，请提前精简描写。
 
 ---
 请直接开始写正文，写完后输出：
@@ -390,6 +391,30 @@ class WriterAgent:
             ])
             parts = resp.content.split(SETTLEMENT_SEPARATOR, 1)
             content = parts[0].strip()
+
+            # ── 字数自动处理 ──
+            content_length = len(content)
+            max_length = int(target_words * 1.2)  # 硬性上限
+            min_length = int(target_words * 0.8)  # 硬性下限
+            
+            if content_length > max_length:
+                # 超过上限，自动截断到目标字数
+                # 找到合适的截断位置（在句子结尾或段落结尾）
+                truncate_at = int(target_words * 1.1)
+                if truncate_at < len(content):
+                    # 尝试在句子结尾截断
+                    for i in range(truncate_at, min(len(content), truncate_at + 50)):
+                        if content[i] in ('。', '！', '？', '；', ':', '\n', ' '):
+                            content = content[:i+1].strip()
+                            break
+                    else:
+                        # 如果没找到合适位置，直接截断
+                        content = content[:truncate_at].strip() + "..."
+            
+            elif content_length < min_length:
+                # 少于下限，标记需要补充
+                # 这里我们不重写，让后续修订流程处理
+                pass
 
             settlement = PostWriteSettlement()
             if len(parts) > 1:
