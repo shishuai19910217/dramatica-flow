@@ -256,15 +256,26 @@ def write(
         console.print("[bold]生成章纲...[/bold]")
         all_outlines = []
         ch_start = 1
+        previous_chapter_titles: list[str] = []
         for seq in outline.sequences:
             cos = engine.generate_chapter_outlines(
                 sequence=seq, protagonist=protagonist,
                 world_context=sm.read_truth("story_bible"),
                 chapter_start=ch_start,
                 words_per_chapter=state.config.target_words_per_chapter,
+                previous_chapter_titles=previous_chapter_titles,
+                genre=state.config.genre,  # 传递书籍题材
             )
             all_outlines.extend(cos)
             ch_start += len(cos)
+            previous_chapter_titles.extend(co.title for co in cos)
+        # 最终去重校验
+        seen_titles: dict[str, int] = {}
+        for o in all_outlines:
+            original = o.title
+            while o.title in seen_titles:
+                o.title = f"{original}-{seen_titles[original] + 1}"
+            seen_titles[o.title] = 1
         chapter_outlines_path.write_text(
             json.dumps([o.model_dump() for o in all_outlines], ensure_ascii=False, indent=2),
             encoding="utf-8",

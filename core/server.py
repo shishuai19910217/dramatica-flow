@@ -1515,6 +1515,38 @@ async def ai_generate_setup(book_id: str, req: AiGenerateSetupReq):
         elif "```" in content:
             content = content.split("```", 1)[1].split("```", 1)[0]
         data = json.loads(content)
+        
+        # 强制为每个序列补充 key_events，确保数量足够且每个事件都独特
+        event_templates = [
+            "冲突爆发", "危机化解", "秘密揭露", "盟友背叛", "关键抉择",
+            "绝境逆袭", "真相大白", "计划失败", "意外发现", "命运转折",
+            "阴谋败露", "危机升级", "盟友加入", "技能突破", "真相反转",
+            "陷阱布置", "危机解除", "秘密潜入", "身份暴露", "决战前夕"
+        ]
+        for seq in data.get("sequences", []):
+            if "key_events" not in seq:
+                seq["key_events"] = []
+            # 需要补充到 estimated_scenes 的数量
+            needed = max(seq.get("estimated_scenes", 5), len(seq["key_events"]))
+            summary = seq.get("summary", "")
+            goal = seq.get("narrative_goal", "")
+            full_text = (summary + goal).replace(" ", "")
+            
+            while len(seq["key_events"]) < needed:
+                idx = len(seq["key_events"])
+                # 使用事件模板 + 文本关键词组合，确保每个事件都独特
+                event_type = event_templates[idx % len(event_templates)]
+                text_pos = (idx * 5) % max(len(full_text) - 3, 1)
+                keyword = full_text[text_pos:text_pos+3] if len(full_text) > 3 else ""
+                new_event = f"{keyword}{event_type}{idx+1}"
+                
+                # 确保不重复
+                if new_event not in seq["key_events"]:
+                    seq["key_events"].append(new_event)
+                else:
+                    # 如果重复，使用纯事件模板
+                    seq["key_events"].append(f"{event_type}{idx+1}")
+        
         return {"ok": True, "data": data}
     except json.JSONDecodeError as e:
         return {"ok": False, "error": f"AI 输出 JSON 解析失败：{e}", "raw": content[-500:] if content else ""}
@@ -2341,6 +2373,23 @@ async def ai_generate_outline(book_id: str, req: AiGenerateOutlineReq):
 - 外部目标：{p_need}
 - 内在渴望：{p_internal}
 
+## 关键事件（key_events）生成要求（★★★★★ 必须严格遵守）
+⚠️ **严重警告**：每个序列的 `key_events` 数组必须包含**恰好等于 estimated_scenes 数量**的不同关键事件！
+
+### 事件类型要求：
+- 每个事件类型必须符合 {state.config.genre} 题材的世界观
+- 事件类型必须覆盖冲突、成长、反转、揭秘等故事要素
+- 事件类型必须使用不同的动词和名词组合，避免重复
+
+### 错误示例（禁止使用）：
+- ❌ "key_events": ["关键事件1", "关键事件2"]（数量不足）
+- ❌ "key_events": ["冲突爆发", "冲突升级", "冲突化解"]（动词重复）
+- ❌ "key_events": ["事件1", "事件2", "事件3"]（过于笼统）
+
+### 正确示例：
+- ✅ "key_events": ["职场博弈", "商业谈判", "创业逆袭", "豪门恩怨", "商业间谍"]（5个事件，estimated_scenes=5）
+- ✅ "key_events": ["功法突破", "秘境探险", "宗门斗争", "神兽契约", "丹道炼丹", "器道炼器"]（6个事件，estimated_scenes=6）
+
 请严格按以下 JSON 结构输出（所有字段都必须有）：
 ```json
 {{
@@ -2356,8 +2405,8 @@ async def ai_generate_outline(book_id: str, req: AiGenerateOutlineReq):
       "summary": "序列摘要（50-100字）",
       "narrative_goal": "这个序列的叙事目标",
       "dramatic_function": "setup",
-      "key_events": ["关键事件1", "关键事件2"],
-      "estimated_scenes": 5,
+      "key_events": ["关键事件1", "关键事件2", "关键事件3"],  // 数量必须等于 estimated_scenes
+      "estimated_scenes": 3,
       "end_hook": "序列结尾钩子"
     }}
   ]
@@ -2373,7 +2422,8 @@ dramatic_function 只能使用以下值：
 3. estimated_scenes 的总和必须精确等于 {state.config.target_chapters}
 4. 必须覆盖：setup、inciting、turning、midpoint、crisis、climax、consequence
 5. 每个序列必须有唯一的 id（格式 seq_001, seq_002 ...）
-6. 每个序列的 estimated_scenes 至少为 1，不能为 0"""
+6. 每个序列的 estimated_scenes 至少为 1，不能为 0
+7. **每个序列的 key_events 数量必须等于 estimated_scenes，且每个事件都必须独特**"""
 
     try:
         resp = await asyncio.to_thread(
@@ -2488,6 +2538,24 @@ async def ai_continue_outline(book_id: str, req: AiContinueOutlineReq):
         seq["dramatic_function"] = _DF_MAP.get(df, df)
 
     existing["sequences"].extend(new_seqs)
+    # 为每个序列补充 key_events，确保数量足够
+    for seq in existing["sequences"]:
+        if "key_events" not in seq:
+            seq["key_events"] = []
+        # 需要补充到 estimated_scenes 的数量
+        needed = max(seq.get("estimated_scenes", 5), len(seq["key_events"]))
+        while len(seq["key_events"]) < needed:
+            # 从 summary 和 narrative_goal 中提取
+            summary = seq.get("summary", "")
+            goal = seq.get("narrative_goal", "")
+            suffix = f"事件{len(seq['key_events']) + 1}"
+            # 用不同位置的字符拼凑
+            start = (len(seq["key_events"]) * 7) % max(len(summary + goal), 1)
+            new_event = f"{summary[start:start+3]}{goal[start+3:start+6]}{suffix}"
+            if new_event not in seq["key_events"]:
+                seq["key_events"].append(new_event)
+            else:
+                seq["key_events"].append(f"剧情转折{len(seq['key_events']) + 1}")
     # 回写
     outline_path.write_text(json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -2539,6 +2607,7 @@ async def ai_generate_chapter_outlines(book_id: str):
     try:
         all_outlines = []
         ch_start = 1
+        previous_chapter_titles: list[str] = []
         for seq in outline.sequences:
             cos = await asyncio.to_thread(
                 engine.generate_chapter_outlines,
@@ -2546,9 +2615,21 @@ async def ai_generate_chapter_outlines(book_id: str):
                 sm.read_truth("story_bible"),
                 ch_start,
                 state.config.target_words_per_chapter,
+                None,
+                previous_chapter_titles,
             )
             all_outlines.extend(cos)
             ch_start += len(cos)
+            # 收集已生成的章节标题，供后续序列防重
+            previous_chapter_titles.extend(co.title for co in cos)
+
+        # 最终去重校验：如果仍有重复标题，追加章节号作为后缀
+        seen_titles: dict[str, int] = {}
+        for o in all_outlines:
+            original = o.title
+            while o.title in seen_titles:
+                o.title = f"{original}-{seen_titles[original] + 1}"
+            seen_titles[o.title] = 1
 
         result_data = [o.model_dump() for o in all_outlines]
         path = sm.state_dir / "chapter_outlines.json"
@@ -2605,6 +2686,7 @@ async def ai_generate_chapter_outlines_stream(book_id: str):
             chapters_completed_total = 0
             all_outlines = []
             ch_start = 1
+            previous_chapter_titles: list[str] = []
             
             # 获取当前事件循环（必须在主线程中获取）
             loop = asyncio.get_running_loop()
@@ -2665,6 +2747,8 @@ async def ai_generate_chapter_outlines_stream(book_id: str):
                     ch_start,
                     state.config.target_words_per_chapter,
                     progress_callback,
+                    previous_chapter_titles,
+                    genre=state.config.genre,  # 传递书籍题材
                 )
                 
                 # 从队列中读取进度更新
@@ -2678,6 +2762,8 @@ async def ai_generate_chapter_outlines_stream(book_id: str):
                 all_outlines.extend(cos)
                 chapters_completed_total += len(cos)
                 ch_start += len(cos)
+                # 收集已生成的章节标题，供后续序列防重
+                previous_chapter_titles.extend(co.title for co in cos)
 
                 # 通知序列完成
                 yield f"data: {json.dumps({
@@ -2690,6 +2776,19 @@ async def ai_generate_chapter_outlines_stream(book_id: str):
                     'message': f'「{seq_name}」处理完成（{len(cos)}章）'
                 }, ensure_ascii=False)}\n\n"
                 await asyncio.sleep(0.1)
+
+            # 最终去重校验：如果仍有重复标题，用有意义的后缀替换，避免简单编号
+            seen_titles: dict[str, int] = {}
+            unique_suffixes = ["风波", "危机", "秘闻", "奇遇", "决战", "逆袭", "阴谋", "真相", "抉择", "转折"]
+            for o in all_outlines:
+                original = o.title
+                while o.title in seen_titles:
+                    # 使用有意义的后缀，而不是简单的数字编号
+                    count = seen_titles[original]
+                    suffix = unique_suffixes[count % len(unique_suffixes)]
+                    o.title = f"{original[:-2] if '章-' in original else original}{suffix}"
+                seen_titles[original] = seen_titles.get(original, 0) + 1
+                seen_titles[o.title] = 1
 
             # 保存结果
             result_data = [o.model_dump() for o in all_outlines]
