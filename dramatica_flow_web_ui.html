@@ -387,7 +387,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft Ya
 
 <!-- ── 弹窗：进度展示 ─────────────────────────────────────────────────────── -->
 <div class="modal-overlay" id="modal-progress" style="display:none">
-  <div class="modal" style="max-width:500px">
+  <div class="modal" style="max-width:560px">
     <h3 id="progress-title">AI 正在生成章节大纲</h3>
     <div id="progress-content" style="padding:8px 0">
       <!-- 进度条 -->
@@ -426,11 +426,28 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft Ya
         </div>
       </div>
       
+      <!-- 错误信息区域 -->
+      <div id="progress-error" style="display:none;background:var(--red-bg);border:1px solid var(--red);border-radius:8px;padding:12px;margin-bottom:8px">
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          <span style="font-size:18px">&#9888;</span>
+          <div style="flex:1">
+            <div style="font-weight:600;color:var(--red);margin-bottom:4px">写作失败</div>
+            <div id="error-message" style="font-size:13px;color:var(--text2);line-height:1.6"></div>
+            <div id="error-details" style="display:none;margin-top:8px;padding-top:8px;border-top:1px solid rgba(248,81,73,0.2);font-size:12px;color:var(--text3);font-family:ui-monospace,monospace;word-break:break-all"></div>
+            <div style="margin-top:8px">
+              <button class="btn btn-sm" onclick="document.getElementById('error-details').style.display = document.getElementById('error-details').style.display === 'none' ? 'block' : 'none'">
+                显示详情</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      
       <!-- 日志区域 -->
       <div id="progress-log" style="max-height:180px;overflow-y:auto;background:var(--bg3);border-radius:6px;padding:10px;font-size:12px;color:var(--text2);font-family:ui-monospace,monospace;line-height:1.6"></div>
     </div>
     <div id="progress-actions" style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
       <button class="btn" id="progress-close-btn" onclick="closeProgressModal()" style="display:none">关闭</button>
+      <button class="btn btn-primary" id="progress-retry-btn" onclick="retryWrite()" style="display:none">重试写作</button>
     </div>
   </div>
 </div>
@@ -2985,7 +3002,16 @@ function openWriteProgressModal() {
   document.getElementById('sequence-indicators').innerHTML = '';
   document.getElementById('progress-spinner').style.display = '';
   document.getElementById('progress-close-btn').style.display = 'none';
+  document.getElementById('progress-retry-btn').style.display = 'none';
+  document.getElementById('progress-error').style.display = 'none';
   document.getElementById('progress-title').textContent = 'AI正在写作中';
+}
+
+// 重试写作
+function retryWrite() {
+  closeWriteProgressModal();
+  // 尝试重新执行写作，默认写1章
+  doWriteStream(1);
 }
 
 function closeWriteProgressModal() {
@@ -3018,10 +3044,26 @@ function updateWriteProgress(data) {
   
   // 更新日志
   const logEl = document.getElementById('progress-log');
-  if (logEl && data.stage === 'log') {
-    const time = new Date().toLocaleTimeString();
-    logEl.innerHTML += `<div>[${time}] ${esc(data.message || '')}</div>`;
-    logEl.scrollTop = logEl.scrollHeight;
+  if (logEl) {
+    // 错误消息也记录到日志
+    if (data.stage === 'log' || data.stage === 'error') {
+      const time = new Date().toLocaleTimeString();
+      const level = data.stage === 'error' ? '<span style="color:var(--red)">ERROR</span>' : 'INFO';
+      logEl.innerHTML += `<div>[${time}] [${level}] ${esc(data.message || '')}</div>`;
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+  }
+  
+  // 显示错误信息
+  if (data.stage === 'error') {
+    document.getElementById('progress-error').style.display = 'block';
+    document.getElementById('error-message').textContent = data.message || '未知错误';
+    document.getElementById('error-details').textContent = data.details || data.raw_output || '';
+    if (data.details || data.raw_output) {
+      document.querySelector('#progress-error button').style.display = 'block';
+    } else {
+      document.querySelector('#progress-error button').style.display = 'none';
+    }
   }
   
   // 更新章节指示器
@@ -3102,7 +3144,8 @@ async function doWriteStream(count) {
           writeEventSource = null;
           document.getElementById('progress-spinner').style.display = 'none';
           document.getElementById('progress-close-btn').style.display = '';
-          toast('写作失败：' + (data.message || ''), false);
+          document.getElementById('progress-retry-btn').style.display = '';
+          // 不显示 toast，错误信息已经在弹窗中显示
         }
       } catch (e) {
         console.error('解析SSE消息失败:', e);

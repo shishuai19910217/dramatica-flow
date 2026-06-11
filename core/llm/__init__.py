@@ -124,10 +124,52 @@ class LLMProvider(ABC):
 
 # ── DeepSeek Provider（OpenAI SDK 兼容） ──────────────────────────────────────
 
+def _retry_on_rate_limit(max_retries: int = 3, delay: int = 5):
+    """
+    装饰器：在遇到速率限制或服务不可用时自动重试
+    """
+    import time
+    from functools import wraps
+    
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            last_exception = None
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    error_str = str(e).lower()
+                    # 检查是否是流控相关错误
+                    is_rate_limit = (
+                        "429" in str(e) or 
+                        "too many requests" in error_str or 
+                        "rate limit" in error_str or
+                        "503" in str(e) or
+                        "service unavailable" in error_str or
+                        "temporarily unavailable" in error_str
+                    )
+                    
+                    if not is_rate_limit:
+                        raise  # 非流控错误，直接抛出
+                    
+                    last_exception = e
+                    wait_time = delay * (2 ** attempt)  # 指数退避
+                    print(f"[LLM] 遇到流控限制，等待 {wait_time} 秒后重试 (第 {attempt + 1}/{max_retries} 次)")
+                    time.sleep(wait_time)
+            
+            # 重试次数用尽
+            raise LLMError(f"LLM 调用失败：已重试 {max_retries} 次仍失败。错误：{str(last_exception)}")
+        return wrapper
+    return decorator
+
+
 class DeepSeekProvider(LLMProvider):
     """
     DeepSeek 通过 OpenAI 兼容接口接入。
     同样适用于其他 OpenAI 兼容接口（中转站、本地 Ollama 等）。
+    
+    支持自动重试机制，处理 NVIDIA 平台等的流控限制。
     """
 
     def __init__(self, config: LLMConfig):
@@ -137,9 +179,15 @@ class DeepSeekProvider(LLMProvider):
             raise LLMError("请先安装 openai: pip install openai")
 
         self.config = config
+        # 设置超时时间，避免长时间卡住
+        timeout = int(os.environ.get("LLM_TIMEOUT", "120"))  # 默认120秒
+        self.max_retries = int(os.environ.get("LLM_MAX_RETRIES", "3"))
+        self.retry_delay = int(os.environ.get("LLM_RETRY_DELAY", "5"))
+        
         self.client = OpenAI(
             api_key=config.api_key,
             base_url=config.base_url,
+            timeout=timeout,
         )
 
     def _build_kwargs(self, stream: bool = False) -> dict:
@@ -148,20 +196,41 @@ class DeepSeekProvider(LLMProvider):
             kwargs["max_tokens"] = self.config.max_tokens
         return kwargs
 
+    @_retry_on_rate_limit(max_retries=3, delay=5)
     def complete(self, messages: list[LLMMessage]) -> LLMResponse:
         # 打印提示词
         _print_llm_prompt(messages, self.config, is_stream=False)
         
-        response = self.client.chat.completions.create(
-            messages=[m.to_dict() for m in messages], **self._build_kwargs(stream=False))
-        content = response.choices[0].message.content or ""
-        usage = response.usage
-        return LLMResponse(
-            content=content,
-            input_tokens=usage.prompt_tokens if usage else 0,
-            output_tokens=usage.completion_tokens if usage else 0,
-        )
+        try:
+            response = self.client.chat.completions.create(
+                messages=[m.to_dict() for m in messages], **self._build_kwargs(stream=False))
+            
+            # 处理响应
+            if not response or not response.choices:
+                raise LLMError("LLM 返回空响应")
+            
+            choice = response.choices[0]
+            if not choice.message:
+                raise LLMError("LLM 返回消息为空")
+            
+            content = choice.message.content or ""
+            if not content.strip():
+                raise LLMError("LLM 返回内容为空")
+            
+            usage = response.usage
+            return LLMResponse(
+                content=content,
+                input_tokens=usage.prompt_tokens if usage else 0,
+                output_tokens=usage.completion_tokens if usage else 0,
+            )
+        except Exception as e:
+            # 检查是否是超时错误
+            error_str = str(e).lower()
+            if "timeout" in error_str or "timed out" in error_str:
+                raise LLMError(f"LLM 请求超时: {str(e)}")
+            raise LLMError(f"LLM 调用失败: {str(e)}")
 
+    @_retry_on_rate_limit(max_retries=3, delay=5)
     def stream(self, messages: list[LLMMessage], on_chunk: Callable[[str], None]) -> LLMResponse:
         # 打印提示词
         _print_llm_prompt(messages, self.config, is_stream=True)
@@ -199,9 +268,12 @@ class OllamaProvider(LLMProvider):
                 temperature=float(os.environ.get("DEFAULT_TEMPERATURE", "0.7")),
             )
         self.config = config
+        # 设置超时时间，避免长时间卡住
+        timeout = int(os.environ.get("LLM_TIMEOUT", "120"))  # 默认120秒
         self.client = OpenAI(
             api_key=config.api_key,
             base_url=config.base_url,
+            timeout=timeout,
         )
 
     def _build_kwargs(self, stream: bool = False) -> dict:
@@ -214,15 +286,30 @@ class OllamaProvider(LLMProvider):
         # 打印提示词
         _print_llm_prompt(messages, self.config, is_stream=False)
         
-        response = self.client.chat.completions.create(
-            messages=[m.to_dict() for m in messages], **self._build_kwargs(stream=False))
-        content = response.choices[0].message.content or ""
-        usage = response.usage
-        return LLMResponse(
-            content=content,
-            input_tokens=usage.prompt_tokens if usage else 0,
-            output_tokens=usage.completion_tokens if usage else 0,
-        )
+        try:
+            response = self.client.chat.completions.create(
+                messages=[m.to_dict() for m in messages], **self._build_kwargs(stream=False))
+            
+            # 处理响应
+            if not response or not response.choices:
+                raise LLMError("LLM 返回空响应")
+            
+            choice = response.choices[0]
+            if not choice.message:
+                raise LLMError("LLM 返回消息为空")
+            
+            content = choice.message.content or ""
+            if not content.strip():
+                raise LLMError("LLM 返回内容为空")
+            
+            usage = response.usage
+            return LLMResponse(
+                content=content,
+                input_tokens=usage.prompt_tokens if usage else 0,
+                output_tokens=usage.completion_tokens if usage else 0,
+            )
+        except Exception as e:
+            raise LLMError(f"LLM 调用失败: {str(e)}")
 
     def stream(self, messages: list[LLMMessage], on_chunk: Callable[[str], None]) -> LLMResponse:
         # 打印提示词
@@ -251,10 +338,36 @@ def parse_llm_json(
     从 LLM 输出中安全解析 JSON。
     支持 ```json ... ``` 包裹，解析失败时抛出带上下文的错误。
     patch_fn: 可选回调，在 Pydantic 验证前对 dict 做修正（补缺字段等）。
+    
+    特别处理 NVIDIA 平台模型可能输出的干扰文本，如"已输出 JSON，不要输出代码"等。
     """
-    # 剥离 ```json ... ``` 或 ``` ... ```
-    stripped = re.sub(r"^```(?:json)?\s*", "", raw.strip(), flags=re.MULTILINE)
+    # 1. 首先移除常见的模型输出前缀/后缀干扰文本
+    cleaned = raw.strip()
+    
+    # 移除模型可能输出的解释性文字（NVIDIA 平台常见）
+    interference_patterns = [
+        r"^\s*已输出 JSON，不要输出代码\s*",
+        r"^\s*End of LLM Prompt\s*",
+        r"^\s*JSON 输出完成\s*",
+        r"^\s*输出格式：\s*",
+        r"^\s*以下是 JSON 输出：\s*",
+        r"^\s*按照要求输出 JSON：\s*",
+        r"\s*已输出 JSON，不要输出代码\s*$",
+        r"\s*End of LLM Prompt\s*$",
+    ]
+    
+    for pattern in interference_patterns:
+        cleaned = re.sub(pattern, "", cleaned)
+    
+    # 2. 剥离 ```json ... ``` 或 ``` ... ``` 包裹
+    stripped = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.MULTILINE)
     stripped = re.sub(r"\s*```\s*$", "", stripped, flags=re.MULTILINE).strip()
+
+    # 3. 如果文本仍不以上花括号或左方括号开头，尝试找到第一个 { 或 [ 开始的位置
+    if stripped and not stripped.startswith("{") and not stripped.startswith("["):
+        match = re.search(r"(\{|\[)", stripped)
+        if match:
+            stripped = stripped[match.start():]
 
     try:
         data = json.loads(stripped)
@@ -266,7 +379,7 @@ def parse_llm_json(
         except json.JSONDecodeError:
             ctx = f" ({context})" if context else ""
             raise LLMParseError(
-                f"JSON 解析失败{ctx}: {e}",
+                f"JSON 解析失败{ctx}: {e}\n原始输出预览: {raw[:200]}...",
                 raw_output=raw,
             )
 

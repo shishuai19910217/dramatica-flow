@@ -189,7 +189,7 @@ def _load_env():
 
 
 def _create_llm(temperature: float | None = None, model_env: str = "DEEPSEEK_MODEL", max_tokens: int | None = None):
-    """创建 LLM 实例（支持 deepseek / ollama / openai / zhipu / moonshot / qwen）"""
+    """创建 LLM 实例（支持 deepseek / ollama / openai / zhipu / moonshot / qwen / custom）"""
     from core.llm import LLMConfig, create_provider
     provider = os.environ.get("LLM_PROVIDER", "deepseek").lower()
     temp = temperature if temperature is not None else float(os.environ.get("DEFAULT_TEMPERATURE", "0.7"))
@@ -206,14 +206,39 @@ def _create_llm(temperature: float | None = None, model_env: str = "DEEPSEEK_MOD
         )
         return create_provider(cfg)
 
-    # 通用 OpenAI 兼容模式（deepseek / openai / zhipu / moonshot / qwen 都走这里）
-    env_prefix = provider.upper() + "_"  # 如 ZHIPU_, MOONSHOT_
-    key = os.environ.get(f"{env_prefix}API_KEY", "") or os.environ.get("DEEPSEEK_API_KEY", "")
+    # 通用 OpenAI 兼容模式（deepseek / openai / zhipu / moonshot / qwen / custom 都走这里）
+    env_prefix = provider.upper() + "_"  # 如 ZHIPU_, MOONSHOT_, CUSTOM_
+    
+    # 获取 API Key
+    key = os.environ.get(f"{env_prefix}API_KEY", "")
+    if not key:
+        # custom provider 不回退到 DEEPSEEK_API_KEY
+        if provider == "custom":
+            raise HTTPException(400, f"请先配置 {provider} 的 API Key")
+        key = os.environ.get("DEEPSEEK_API_KEY", "")
+    
     if not key:
         raise HTTPException(400, f"请先配置 {provider} 的 API Key")
-    base_url = os.environ.get(f"{env_prefix}BASE_URL",
-                               os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"))
-    model = os.environ.get(f"{env_prefix}MODEL", os.environ.get(model_env, os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")))
+    
+    # 获取 Base URL
+    base_url = os.environ.get(f"{env_prefix}BASE_URL", "")
+    if not base_url:
+        # custom provider 不回退到 DEEPSEEK_BASE_URL
+        if provider != "custom":
+            base_url = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
+    
+    if not base_url:
+        raise HTTPException(400, f"请先配置 {provider} 的 BASE_URL")
+    
+    # 获取模型（优先使用 agent 特定模型，如 AUDITOR_MODEL）
+    model = os.environ.get(model_env, "") or os.environ.get(f"{env_prefix}MODEL", "")
+    if not model:
+        if provider != "custom":
+            model = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+    
+    if not model:
+        raise HTTPException(400, f"请先配置模型（{model_env} 或 {env_prefix}MODEL）")
+    
     cfg = LLMConfig(api_key=key, base_url=base_url, model=model, temperature=temp, max_tokens=max_tokens)
     return create_provider(cfg)
 
@@ -4336,13 +4361,33 @@ async def action_write_stream(book_id: str, count: int = 1):
                 complete_msg = f'成功完成{completed_chapters}章写作'
                 yield f"data: {json.dumps({'stage': 'complete', 'message': complete_msg, 'completed_chapters': completed_chapters}, ensure_ascii=False)}\n\n"
             else:
-                yield f"data: {json.dumps({'stage': 'error', 'message': '写作失败，请检查日志', 'stdout': stdout_str[-1000:]}, ensure_ascii=False)}\n\n"
+                # 从日志中提取更详细的错误信息
+                error_details = stdout_str[-2000:] if stdout_str else ''
+                error_message = '写作失败，请检查日志'
+                
+                # 尝试从日志中提取更具体的错误信息
+                if 'JSON 解析失败' in stdout_str:
+                    error_message = 'JSON 解析失败，模型输出格式异常'
+                elif '已输出 JSON，不要输出代码' in stdout_str:
+                    error_message = '模型输出格式问题：收到了干扰文本'
+                elif 'LLMParseError' in stdout_str:
+                    error_message = 'LLM 输出解析错误'
+                elif '429' in stdout_str or 'rate limit' in stdout_str.lower() or 'too many requests' in stdout_str.lower():
+                    error_message = '服务限流，请稍后重试（已自动重试3次）'
+                elif '503' in stdout_str or 'service unavailable' in stdout_str.lower():
+                    error_message = '服务暂时不可用，请稍后重试'
+                elif 'API Error' in stdout_str or 'HTTP' in stdout_str:
+                    error_message = 'API 请求失败，请检查网络或密钥配置'
+                elif 'timeout' in stdout_str.lower():
+                    error_message = '请求超时，请检查网络连接或增加超时时间'
+                
+                yield f"data: {json.dumps({'stage': 'error', 'message': error_message, 'details': error_details}, ensure_ascii=False)}\n\n"
                 
         except Exception as e:
             import traceback
             traceback.print_exc()
             error_msg = f'执行出错：{str(e)}'
-            yield f"data: {json.dumps({'stage': 'error', 'message': error_msg}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'stage': 'error', 'message': error_msg, 'details': traceback.format_exc()[-1000:]}, ensure_ascii=False)}\n\n"
     
     return StreamingResponse(
         event_generator(),
