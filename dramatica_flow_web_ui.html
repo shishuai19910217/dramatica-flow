@@ -833,7 +833,13 @@ async function testLLMConnection(source) {
     });
 
     if (resp.ok) {
-      resultEl.innerHTML = '<span style="color:var(--green);font-weight:500">&#10003; ' + esc(resp.message) + '</span>';
+      // 展示详细信息
+      const details = [];
+      if (resp.model) details.push(`模型：${esc(resp.model)}`);
+      if (resp.input_tokens !== undefined) details.push(`输入 Token：${resp.input_tokens}`);
+      if (resp.output_tokens !== undefined) details.push(`输出 Token：${resp.output_tokens}`);
+      const detailHtml = details.length > 0 ? `<div style="margin-top:4px;font-size:12px;color:var(--text3)">${details.join(' · ')}</div>` : '';
+      resultEl.innerHTML = `<span style="color:var(--green);font-weight:500">&#10003; ${esc(resp.message)}</span>${detailHtml}`;
     } else {
       resultEl.innerHTML = '<span style="color:#e74c3c;font-weight:500">&#10007; ' + esc(resp.message) + '</span>';
     }
@@ -3046,10 +3052,26 @@ function updateWriteProgress(data) {
   const logEl = document.getElementById('progress-log');
   if (logEl) {
     // 错误消息也记录到日志
-    if (data.stage === 'log' || data.stage === 'error') {
+    if (data.stage === 'log' || data.stage === 'error' || data.stage === 'progress_update') {
       const time = new Date().toLocaleTimeString();
-      const level = data.stage === 'error' ? '<span style="color:var(--red)">ERROR</span>' : 'INFO';
-      logEl.innerHTML += `<div>[${time}] [${level}] ${esc(data.message || '')}</div>`;
+      const level = data.stage === 'error' ? '<span style="color:var(--red)">ERROR</span>' : 
+                   data.stage === 'progress_update' ? '<span style="color:var(--primary)">PROGRESS</span>' : 'INFO';
+      
+      // 高亮步骤标记
+      let message = esc(data.message || '');
+      // 为各个角色添加颜色标记
+      message = message.replace(/\[🏛️ 架构师\]/g, '<span style="color:#6366f1;font-weight:600">[🏛️ 架构师]</span>');
+      message = message.replace(/\[✍️ 写作者\]/g, '<span style="color:#22c55e;font-weight:600">[✍️ 写作者]</span>');
+      message = message.replace(/\[🔍 审计员\]/g, '<span style="color:#f59e0b;font-weight:600">[🔍 审计员]</span>');
+      message = message.replace(/\[🔧 修订员\]/g, '<span style="color:#ec4899;font-weight:600">[🔧 修订员]</span>');
+      message = message.replace(/\[⭐ 质量评估\]/g, '<span style="color:#8b5cf6;font-weight:600">[⭐ 质量评估]</span>');
+      message = message.replace(/\[🔗 因果链\]/g, '<span style="color:#14b8a6;font-weight:600">[🔗 因果链]</span>');
+      message = message.replace(/\[📝 摘要生成\]/g, '<span style="color:#06b6d4;font-weight:600">[📝 摘要生成]</span>');
+      message = message.replace(/\[📊 结算表\]/g, '<span style="color:#f97316;font-weight:600">[📊 结算表]</span>');
+      message = message.replace(/\[✅ 章节完成\]/g, '<span style="color:#22c55e;font-weight:600">[✅ 章节完成]</span>');
+      message = message.replace(/\[💾 保存\]/g, '<span style="color:#6b7280;font-weight:600">[💾 保存]</span>');
+      
+      logEl.innerHTML += `<div>[${time}] [${level}] ${message}</div>`;
       logEl.scrollTop = logEl.scrollHeight;
     }
   }
@@ -4164,8 +4186,32 @@ async function loadSettingsPage() {
           <div class="form-group"><label class="form-label">默认温度</label><input class="form-input" id="sp-temp" type="number" step="0.1" value="${s.default_temperature}"></div>
           <div class="form-group"><label class="form-label">最大输出 Token</label><input class="form-input" id="sp-max-tokens" type="number" step="1" min="1" max="131072" value="${s.max_tokens||8192}"><div class="form-hint">DeepSeek 建议 8192</div></div>
         </div>
-        <div class="form-row" style="margin-top:12px">
-          <div class="form-group"><label class="form-label">审计模型</label><input class="form-input" id="sp-auditor" value="${s.auditor_model||''}" placeholder="留空用主模型"></div>
+        <!-- 各 Agent 模型配置 -->
+        <div class="card" style="margin-top:12px;border:1px solid var(--bg2)">
+          <div class="card-header" style="padding:8px 12px;font-size:14px">各 Agent 模型配置</div>
+          <div style="padding:12px">
+            <div class="form-row">
+              <div class="form-group"><label class="form-label">架构师模型</label><input class="form-input" id="sp-architect" value="${s.architect_model||''}" placeholder="留空用主模型"></div>
+              <div class="form-group"><label class="form-label">写作者模型</label><input class="form-input" id="sp-writer" value="${s.writer_model||''}" placeholder="留空用主模型"></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><label class="form-label">审计员模型</label><input class="form-input" id="sp-auditor-model" value="${s.auditor_model||''}" placeholder="留空用主模型"></div>
+              <div class="form-group"><label class="form-label">修订员模型</label><input class="form-input" id="sp-reviser" value="${s.reviser_model||''}" placeholder="留空用主模型"></div>
+            </div>
+          </div>
+        </div>
+        <!-- 高级配置 -->
+        <div class="card" style="margin-top:12px;border:1px solid var(--bg2)">
+          <div class="card-header" style="padding:8px 12px;font-size:14px">高级配置</div>
+          <div style="padding:12px">
+            <div class="form-row">
+              <div class="form-group"><label class="form-label">超时时间(秒)</label><input class="form-input" id="sp-timeout" type="number" step="1" min="30" max="1200" value="${s.llm_timeout||300}"><div class="form-hint">NVIDIA 建议 600</div></div>
+              <div class="form-group"><label class="form-label">重试次数</label><input class="form-input" id="sp-retries" type="number" step="1" min="0" max="10" value="${s.llm_max_retries||3}"><div class="form-hint">流控时自动重试</div></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><label class="form-label">重试间隔(秒)</label><input class="form-input" id="sp-retry-delay" type="number" step="1" min="1" max="60" value="${s.llm_retry_delay||5}"><div class="form-hint">指数退避：5→10→20秒</div></div>
+            </div>
+          </div>
         </div>
         <div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap">
           <button class="btn btn-primary" onclick="saveSettingsFromPage()">保存</button>
@@ -4204,7 +4250,14 @@ async function saveSettingsFromPage() {
       ollama_model: document.getElementById('sp-ol-model').value,
       default_temperature: document.getElementById('sp-temp').value,
       max_tokens: document.getElementById('sp-max-tokens').value,
-      auditor_model: document.getElementById('sp-auditor').value,
+      // 使用新的各 Agent 配置区域的输入框
+      auditor_model: document.getElementById('sp-auditor-model').value,
+      architect_model: document.getElementById('sp-architect').value,
+      writer_model: document.getElementById('sp-writer').value,
+      reviser_model: document.getElementById('sp-reviser').value,
+      llm_timeout: document.getElementById('sp-timeout').value,
+      llm_max_retries: document.getElementById('sp-retries').value,
+      llm_retry_delay: document.getElementById('sp-retry-delay').value,
       custom_base_url: isOpenAICompatible ? document.getElementById('sp-cust-url').value : '',
       custom_api_key: isOpenAICompatible ? document.getElementById('sp-cust-key').value : '',
       custom_model: isOpenAICompatible ? document.getElementById('sp-cust-model').value : '',

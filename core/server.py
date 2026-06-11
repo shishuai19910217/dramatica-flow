@@ -264,6 +264,14 @@ class SaveSettingsReq(BaseModel):
     default_temperature: str = "0.7"
     max_tokens: str = "8192"
     auditor_model: str = ""
+    # 各 Agent 模型配置
+    architect_model: str = ""
+    writer_model: str = ""
+    reviser_model: str = ""
+    # LLM 高级配置
+    llm_timeout: str = "300"
+    llm_max_retries: str = "3"
+    llm_retry_delay: str = "5"
     # 新增：自定义提供商配置
     custom_base_url: str = ""
     custom_api_key: str = ""
@@ -3504,6 +3512,12 @@ def get_settings():
         "default_temperature": "0.7",
         "max_tokens": "8192",
         "auditor_model": "",
+        "architect_model": "",
+        "writer_model": "",
+        "reviser_model": "",
+        "llm_timeout": "300",
+        "llm_max_retries": "3",
+        "llm_retry_delay": "5",
         "custom_base_url": "",
         "custom_model": "",
         "custom_api_key": "",
@@ -3531,6 +3545,18 @@ def get_settings():
                 result["max_tokens"] = vals[k]
             elif kl == "auditor_model":
                 result["auditor_model"] = vals[k]
+            elif kl == "architect_model":
+                result["architect_model"] = vals[k]
+            elif kl == "writer_model":
+                result["writer_model"] = vals[k]
+            elif kl == "reviser_model":
+                result["reviser_model"] = vals[k]
+            elif kl == "llm_timeout":
+                result["llm_timeout"] = vals[k]
+            elif kl == "llm_max_retries":
+                result["llm_max_retries"] = vals[k]
+            elif kl == "llm_retry_delay":
+                result["llm_retry_delay"] = vals[k]
     # 读取当前提供商的配置（用于回填 custom 面板）
     current_provider = result["llm_provider"].lower()
     if current_provider not in ("deepseek", "ollama") and ENV_PATH.exists():
@@ -3615,8 +3641,21 @@ def save_settings(req: SaveSettingsReq):
     lines.append("# 写作参数")
     lines.append(f"DEFAULT_TEMPERATURE={req.default_temperature}")
     lines.append(f"MAX_TOKENS={req.max_tokens}")
+    lines.append("")
+    lines.append("# 各 Agent 模型配置（留空使用主模型）")
+    if req.architect_model:
+        lines.append(f"ARCHITECT_MODEL={req.architect_model}")
+    if req.writer_model:
+        lines.append(f"WRITER_MODEL={req.writer_model}")
     if req.auditor_model:
         lines.append(f"AUDITOR_MODEL={req.auditor_model}")
+    if req.reviser_model:
+        lines.append(f"REVISER_MODEL={req.reviser_model}")
+    lines.append("")
+    lines.append("# LLM 高级配置")
+    lines.append(f"LLM_TIMEOUT={req.llm_timeout}")
+    lines.append(f"LLM_MAX_RETRIES={req.llm_max_retries}")
+    lines.append(f"LLM_RETRY_DELAY={req.llm_retry_delay}")
     lines.append("")
     ENV_PATH.write_text("\n".join(lines), encoding="utf-8")
     # 更新内存中的环境变量（确保后续请求立即生效）
@@ -3629,6 +3668,13 @@ def save_settings(req: SaveSettingsReq):
     os.environ["OLLAMA_MODEL"] = req.ollama_model
     os.environ["DEFAULT_TEMPERATURE"] = req.default_temperature
     os.environ["MAX_TOKENS"] = req.max_tokens
+    os.environ["ARCHITECT_MODEL"] = req.architect_model or ""
+    os.environ["WRITER_MODEL"] = req.writer_model or ""
+    os.environ["AUDITOR_MODEL"] = req.auditor_model or ""
+    os.environ["REVISER_MODEL"] = req.reviser_model or ""
+    os.environ["LLM_TIMEOUT"] = req.llm_timeout
+    os.environ["LLM_MAX_RETRIES"] = req.llm_max_retries
+    os.environ["LLM_RETRY_DELAY"] = req.llm_retry_delay
     if provider not in ("deepseek", "ollama"):
         env_prefix = provider.upper() + "_"
         if req.custom_api_key:
@@ -3666,7 +3712,7 @@ async def test_llm_connection(req: TestLLMConnectionReq):
                 base_url=req.ollama_base_url,
                 model=req.ollama_model,
                 temperature=0.1,
-                max_tokens=10,
+                max_tokens=100,
             )
         elif provider == "deepseek":
             cfg = LLMConfig(
@@ -3674,7 +3720,7 @@ async def test_llm_connection(req: TestLLMConnectionReq):
                 base_url=req.deepseek_base_url,
                 model=req.deepseek_model,
                 temperature=0.1,
-                max_tokens=10,
+                max_tokens=100,
             )
         else:
             # openai / zhipu / moonshot / qwen / custom
@@ -3683,7 +3729,7 @@ async def test_llm_connection(req: TestLLMConnectionReq):
                 base_url=req.custom_base_url,
                 model=req.custom_model,
                 temperature=0.1,
-                max_tokens=10,
+                max_tokens=100,
             )
 
         llm = create_provider(cfg, provider_type=provider)
@@ -3694,12 +3740,30 @@ async def test_llm_connection(req: TestLLMConnectionReq):
             [LLMMessage("user", "Hello")],
         )
 
+        # 调试：打印返回结果
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"测试连接返回结果：{resp}")
+        logger.info(f"返回内容类型：{type(resp)}")
+        if hasattr(resp, '__dict__'):
+            logger.info(f"返回对象属性：{resp.__dict__}")
+        if hasattr(resp, 'content'):
+            logger.info(f"返回内容：{resp.content}")
+        if hasattr(resp, 'input_tokens'):
+            logger.info(f"输入 token 数：{resp.input_tokens}")
+        if hasattr(resp, 'output_tokens'):
+            logger.info(f"输出 token 数：{resp.output_tokens}")
+
+        # 检查返回内容是否为空
+        if not resp or not hasattr(resp, 'content') or not resp.content:
+            return {"ok": False, "message": "LLM 返回内容为空", "detail": "模型未返回有效内容"}
+
         return {
             "ok": True,
             "message": "连接成功！模型返回正常",
             "model": cfg.model,
-            "input_tokens": resp.input_tokens,
-            "output_tokens": resp.output_tokens,
+            "input_tokens": resp.input_tokens if hasattr(resp, 'input_tokens') else 0,
+            "output_tokens": resp.output_tokens if hasattr(resp, 'output_tokens') else 0,
         }
     except Exception as e:
         error_msg = str(e)
@@ -4305,10 +4369,40 @@ async def action_write_stream(book_id: str, count: int = 1):
                                 except:
                                     pass
                                     
+                        # 识别步骤阶段并添加标记
+                        step_message = line_stripped
+                        step_tag = ""
+                        
+                        # 识别各个步骤
+                        if "建筑师" in line_stripped or "规划" in line_stripped or "蓝图" in line_stripped:
+                            step_tag = "[🏛️ 架构师]"
+                        elif "写手" in line_stripped or "写正文" in line_stripped or "开始写作" in line_stripped:
+                            step_tag = "[✍️ 写作者]"
+                        elif "审计" in line_stripped:
+                            step_tag = "[🔍 审计员]"
+                        elif "修订" in line_stripped or "修改" in line_stripped:
+                            step_tag = "[🔧 修订员]"
+                        elif "质量评估" in line_stripped:
+                            step_tag = "[⭐ 质量评估]"
+                        elif "因果链" in line_stripped:
+                            step_tag = "[🔗 因果链]"
+                        elif "摘要" in line_stripped:
+                            step_tag = "[📝 摘要生成]"
+                        elif "结算" in line_stripped:
+                            step_tag = "[📊 结算表]"
+                        elif "完成" in line_stripped and "章" in line_stripped:
+                            step_tag = "[✅ 章节完成]"
+                        elif "保存" in line_stripped or "备份" in line_stripped:
+                            step_tag = "[💾 保存]"
+                        
+                        # 如果有步骤标记，添加到消息前面
+                        if step_tag:
+                            step_message = f"{step_tag} {line_stripped}"
+                        
                         # 发送原始日志
                         log_payload = {
                             "stage": "log",
-                            "message": line_stripped
+                            "message": step_message
                         }
                         yield_event = f"data: {json.dumps(log_payload, ensure_ascii=False)}\n\n"
                         try:

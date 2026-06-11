@@ -49,10 +49,15 @@ def _require_key() -> str:
 
 def _llm(temperature: float | None = None, model_env: str = "DEEPSEEK_MODEL"):
     from core.llm import LLMConfig, DeepSeekProvider
+    # 获取模型，处理空字符串情况（.env 中设置了变量但值为空）
+    model = os.environ.get(model_env, "")
+    if not model:  # 如果为空或空字符串，使用默认模型
+        model = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+    
     cfg = LLMConfig(
         api_key=_require_key(),
         base_url=os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"),
-        model=os.environ.get(model_env, os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")),
+        model=model,
         temperature=temperature if temperature is not None
                     else float(os.environ.get("DEFAULT_TEMPERATURE", "0.7")),
     )
