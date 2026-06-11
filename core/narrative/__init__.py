@@ -11,6 +11,9 @@
 """
 from __future__ import annotations
 
+import json
+import re
+
 from pydantic import BaseModel, Field
 
 from ..llm import LLMProvider, LLMMessage, parse_llm_json, parse_llm_json_list, with_retry, _fix_df
@@ -336,6 +339,7 @@ class NarrativeEngine:
         progress_callback=None,
         previous_chapter_titles: list[str] | None = None,
         genre: str = "都市",  # 新增参数：书籍题材，用于选择对应事件类型词汇库
+        use_predefined_events: bool = True,  # 新增参数：是否使用预定义事件类型词汇库
     ) -> list[ChapterOutlineSchema]:
         """
         将一个序列展开为 estimated_scenes 个章纲。
@@ -343,6 +347,7 @@ class NarrativeEngine:
         如果章数过多则分批调用 LLM，避免输出超出 max_tokens 被截断。
         previous_chapter_titles: 前面序列已生成的章节标题列表，用于防止跨序列重复。
         genre: 书籍题材，用于选择对应事件类型词汇库。
+        use_predefined_events: 是否使用预定义事件类型词汇库。
         """
         n_chapters = sequence.estimated_scenes
         # 每批最多生成 5 章，防止 JSON 太长被截断
@@ -376,6 +381,9 @@ class NarrativeEngine:
             # 确保 sequence_id 存在
             if "sequence_id" not in item or not item["sequence_id"]:
                 item["sequence_id"] = sequence.id
+            # 设置目标字数（使用传入的配置值）
+            if "target_words" not in item or not item["target_words"]:
+                item["target_words"] = words_per_chapter
             # 修正序列级的 dramatic_function
             if item.get("dramatic_function") and item["dramatic_function"] not in _VALID_DF:
                 item["dramatic_function"] = _DF_ALIASES.get(item["dramatic_function"].lower().strip(), "transition")
@@ -475,93 +483,118 @@ class NarrativeEngine:
                 if ke and ke not in derived_events:
                     derived_events.append(ke)
             
-            # 2. 如果 key_events 数量不足，补充预定义词汇库事件
-            if len(derived_events) < n_chapters:
+            # 2. 如果 key_events 数量不足，且配置允许，则补充预定义词汇库事件
+            if use_predefined_events and len(derived_events) < n_chapters:
                 # 获取题材相关的预定义事件类型词汇库
+                # 优化：增加更多元化的事件类型，避免模式化重复（如"危机"、"秘闻"、"奇遇"过多）
                 genre_events = {
-                    # 都市题材
+                    # 都市题材 - 动作导向，避免模式化
                     "都市": [
-                        "职场博弈", "商业谈判", "创业逆袭", "都市奇遇", "豪门恩怨",
+                        "职场博弈", "商业谈判", "创业逆袭", "豪门恩怨", "商业间谍",
                         "科技创业", "金融对决", "职场晋升", "都市传说", "爱情纠葛",
-                        "卧底行动", "商业间谍", "行业黑幕", "资本运作", "职场危机",
-                        "明星绯闻", "时尚潮流", "美食探店", "房产投资", "网络红人"
+                        "卧底行动", "行业黑幕", "资本运作", "明星绯闻", "时尚潮流",
+                        "美食探店", "房产投资", "网络红人", "猎头挖角", "创业融资",
+                        "产品发布", "市场竞争", "品牌危机", "公关危机", "数据泄露",
+                        "职场站队", "办公室恋情", "升职加薪", "辞职创业", "行业转型"
                     ],
-                    # 玄幻题材
+                    # 玄幻题材 - 去除"奇遇"等模式化词汇，增加动作导向
                     "玄幻": [
                         "功法突破", "秘境探险", "宗门斗争", "神兽契约", "丹道炼丹",
                         "器道炼器", "符道制符", "阵道布阵", "血脉觉醒", "武魂融合",
-                        "渡劫飞升", "仙魔大战", "秘境寻宝", "传承获得", "奇遇机缘",
-                        "正邪对立", "宗门大比", "丹会论道", "拍卖会风波", "古遗迹探险"
+                        "渡劫飞升", "仙魔大战", "秘境寻宝", "传承获得", "正邪对立",
+                        "宗门大比", "丹会论道", "拍卖会风波", "古遗迹探险", "妖族入侵",
+                        "魔族来袭", "天道感悟", "法则领悟", "道侣双修", "轮回转世",
+                        "因果纠缠", "时空穿梭", "位面战争", "秘境崩塌", "神器认主"
                     ],
                     # 科幻题材
                     "科幻": [
                         "星际探索", "人工智能", "时间旅行", "外星接触", "机械改造",
                         "量子跃迁", "维度穿越", "赛博空间", "基因编辑", "纳米科技",
                         "宇宙战争", "文明碰撞", "虫洞探险", "意识上传", "虚拟世界",
-                        "太空殖民", "反物质能源", "黑洞奥秘", "平行宇宙", "时间悖论"
+                        "太空殖民", "反物质能源", "黑洞奥秘", "平行宇宙", "时间悖论",
+                        "星际贸易", "星球开发", "人工智能反叛", "机械飞升", "意识网络",
+                        "量子计算", "暗物质探索", "宇宙遗迹", "星际联盟", "银河帝国"
                     ],
-                    # 科幻末世题材
+                    # 科幻末世题材 - 去除"危机"等模式化词汇
                     "科幻末世": [
                         "病毒爆发", "末日求生", "废土重建", "变异生物", "资源争夺",
                         "基地建设", "幸存者联盟", "科技残留", "外星入侵", "时间重置",
-                        "地下避难", "辐射变异", "机甲战斗", "基因改造", "人工智能反叛",
-                        "生态崩溃", "星际移民", "旧日支配者", "秘境探索", "文明火种"
+                        "地下避难", "辐射变异", "机甲战斗", "基因改造", "生态崩溃",
+                        "星际移民", "旧日支配者", "文明火种", "废墟探索", "能源枯竭",
+                        "水源争夺", "粮食短缺", "疾病蔓延", "暴力冲突", "希望曙光",
+                        "新文明崛起", "旧世界遗物", "科技复兴", "幸存者营地", "危险区域"
                     ],
                     # 历史题材
                     "历史": [
                         "王朝更迭", "宫廷权谋", "战场厮杀", "丝绸之路", "文化交融",
                         "帝王传奇", "名将征战", "文人墨客", "商业传奇", "民族融合",
                         "变法图强", "农民起义", "外交谋略", "宗教兴衰", "科技发明",
-                        "艺术巅峰", "航海探险", "贸易繁荣", "城市崛起", "家族兴衰"
+                        "艺术巅峰", "航海探险", "贸易繁荣", "城市崛起", "家族兴衰",
+                        "科举之路", "官场沉浮", "边疆征战", "和亲联姻", "文化传承",
+                        "诗词歌赋", "书画艺术", "建筑奇迹", "医学发展", "农业革新"
                     ],
-                    # 悬疑题材
+                    # 悬疑题材 - 去除"秘闻"等模式化词汇
                     "悬疑": [
                         "连环凶案", "密室杀人", "身份谜团", "记忆碎片", "真假难辨",
                         "卧底迷局", "密码破译", "离奇失踪", "幽灵传说", "心理操控",
                         "连环陷阱", "真假证词", "隐匿身份", "暗中观察", "致命游戏",
-                        "时间胶囊", "记忆篡改", "梦境入侵", "虚拟现实", "意识操控"
+                        "时间胶囊", "记忆篡改", "梦境入侵", "虚拟现实", "意识操控",
+                        "神秘组织", "阴谋诡计", "线索追踪", "真相大白", "罪案调查",
+                        "证人保护", "证据分析", "犯罪心理", "侦探推理", "悬疑反转"
                     ],
                     # 悬疑脑洞题材
                     "悬疑脑洞": [
                         "无限循环", "记忆植入", "平行世界", "时间悖论", "梦境嵌套",
                         "意识上传", "虚拟实境", "记忆篡改", "量子纠缠", "因果律武器",
                         "蝴蝶效应", "时空折叠", "维度穿越", "意识入侵", "数字幽灵",
-                        "神经接口", "脑机交互", "记忆碎片", "意识投影", "时间裂隙"
+                        "神经接口", "脑机交互", "记忆碎片", "意识投影", "时间裂隙",
+                        "多元宇宙", "时空悖论", "记忆重构", "虚拟记忆", "意识复制",
+                        "数字意识", "网络幽灵", "数据生命", "程序觉醒", "模拟世界"
                     ],
-                    # 仙侠题材
+                    # 仙侠题材 - 去除"奇遇"等模式化词汇
                     "仙侠": [
                         "修仙问道", "御剑飞行", "仙府探秘", "丹药炼制", "法宝祭炼",
-                        "灵根觉醒", "功法传承", "仙缘奇遇", "渡劫飞升", "仙界纷争",
+                        "灵根觉醒", "功法传承", "机缘巧合", "渡劫飞升", "仙界纷争",
                         "神魔大战", "秘境探险", "仙侣情缘", "宗门竞争", "上古遗迹",
-                        "天道感悟", "法则领悟", "仙魔一念", "轮回转世", "因果纠缠"
+                        "天道感悟", "法则领悟", "仙魔一念", "轮回转世", "因果纠缠",
+                        "飞升仙界", "神界大战", "仙宫探秘", "神兽坐骑", "仙草灵药",
+                        "仙法对决", "仙人下凡", "洞天福地", "仙门传承", "修仙大道"
                     ],
                     # 言情题材
                     "言情": [
                         "一见钟情", "日久生情", "误会重重", "破镜重圆", "豪门虐恋",
                         "青梅竹马", "欢喜冤家", "霸道总裁", "温柔学长", "校园初恋",
                         "职场恋情", "异地相思", "日久见人心", "深情守护", "爱而不得",
-                        "命中注定", "跨越阶层", "家族恩怨", "追妻火葬场", "双向奔赴"
+                        "命中注定", "跨越阶层", "家族恩怨", "追妻火葬场", "双向奔赴",
+                        "暗恋成真", "甜蜜告白", "浪漫约会", "深情告白", "爱情长跑",
+                        "婚姻生活", "爱情考验", "分分合合", "真爱永恒", "幸福美满"
                     ],
                     # 游戏题材
                     "游戏": [
                         "虚拟游戏", "游戏重生", "NPC觉醒", "游戏入侵现实", "数据成神",
                         "职业选择", "副本挑战", "公会争霸", "装备锻造", "技能升级",
                         "隐藏任务", "BOSS击杀", "游戏货币", "虚拟爱情", "游戏直播",
-                        "电竞比赛", "游戏开发", "游戏测试", "游戏BUG", "游戏管理员"
+                        "电竞比赛", "游戏开发", "游戏测试", "游戏BUG", "游戏管理员",
+                        "玩家互动", "游戏策略", "团队协作", "PVP对战", "PVE挑战",
+                        "游戏剧情", "角色养成", "装备收集", "成就解锁", "排行榜竞争"
                     ],
                     # 无限流题材
                     "无限流": [
                         "轮回空间", "副本挑战", "主神空间", "无限任务", "强化升级",
                         "团队协作", "智斗布局", "恐怖副本", "科幻世界", "玄幻位面",
                         "武侠世界", "末日求生", "动漫穿越", "电影世界", "神话传说",
-                        "因果律武器", "时间能力", "空间能力", "基因锁", "最终进化"
+                        "因果律武器", "时间能力", "空间能力", "基因锁", "最终进化",
+                        "团战协作", "个人突破", "隐藏剧情", "支线任务", "主线推进",
+                        "世界探索", "能力融合", "团队组建", "资源争夺", "最终决战"
                     ],
-                    # 默认通用事件类型
+                    # 默认通用事件类型 - 彻底去除模式化词汇
                     "其他": [
-                        "冲突爆发", "危机化解", "秘密揭露", "盟友背叛", "关键抉择",
+                        "冲突爆发", "矛盾激化", "秘密揭露", "盟友背叛", "关键抉择",
                         "绝境逆袭", "真相大白", "计划失败", "意外发现", "命运转折",
                         "阴谋败露", "危机升级", "盟友加入", "技能突破", "真相反转",
-                        "陷阱布置", "危机解除", "秘密潜入", "身份暴露", "决战前夕"
+                        "陷阱布置", "危机解除", "秘密潜入", "身份暴露", "决战前夕",
+                        "计划实施", "行动失败", "意外收获", "形势逆转", "转机出现",
+                        "谜团解开", "真相浮现", "阴谋粉碎", "困境突围", "胜利在望"
                     ]
                 }
                 
@@ -670,6 +703,7 @@ class NarrativeEngine:
 - 禁止标题包含相同的核心名词（如"事务局对策"出现在多个标题中）
 - 禁止标题只是数字编号不同（如"事务局对策1"、"事务局对策2"）
 - 禁止使用相同的动词（如"对策"、"计划"、"行动"等）出现在多个标题中
+- 禁止使用"危机"、"秘闻"、"奇遇"等模式化词汇作为标题结尾（每个词汇最多使用1次）
 
 ### 事件分配（每章必须严格按照此分配生成，不得擅自修改）：
 {events_assignment}
@@ -680,41 +714,86 @@ class NarrativeEngine:
 3. ❌ 禁止标题只是简单在相同名词后加章节号（如"事务局对策1"、"事务局对策2"）
 4. ❌ 禁止使用通用词汇如"情节推进"、"剧情发展"作为标题
 5. ❌ 禁止标题重复或高度相似
+6. ❌ 禁止使用相同的结尾词模式（如"XXX危机"、"XXX秘闻"、"XXX奇遇"反复出现）
+7. ❌ 禁止直接使用事件类型名称作为标题（如事件类型是"危机爆发"，标题不能是"危机爆发"）
 
-### 正确标题设计示例：
+### 🎯 标题动词库（必须从中选择，禁止自行创造重复模式）：
+- 动作类：勇闯、激战、潜入、追踪、刺杀、营救、偷袭、突围、埋伏、截杀、突袭、猛攻、智取、突围、奔袭
+- 状态类：觉醒、蜕变、陨落、重生、爆发、崩溃、崛起、复苏、突破、进化、变异、融合、觉醒、升华
+- 发现类：揭秘、发现、暴露、揭示、揭露、探知、洞察、察觉、挖掘、探索、搜寻、追踪、识破、揭晓
+- 冲突类：交锋、对决、抗衡、博弈、较量、争斗、纷争、冲突、火拼、恶战、死斗、鏖战、血战、激战
+- 情感类：背叛、重逢、决裂、守护、牺牲、救赎、复仇、宽恕、谅解、和解、别离、重逢、纠缠、牵绊
+- 成长类：突破、晋级、蜕变、超越、升华、顿悟、领悟、掌握、精通、融会、贯通、精进、超越、升华
+
+### 🏛️ 标题结构模式（必须严格交替使用，避免单一模式）：
+| 结构类型 | 格式 | 示例 |
+|---------|------|------|
+| 主谓结构 | 主角+动作 | 林砚觉醒、苏清鸢出手 |
+| 动宾结构 | 动作+对象 | 揭秘真相、追踪线索 |
+| 偏正结构 | 修饰+名词 | 惊天秘密、诡异迷雾 |
+| 并列结构 | 名词+名词 | 危机四伏、杀机暗藏 |
+| 倒装结构 | 宾语+动作 | 真相浮现、杀机显现 |
+| 动补结构 | 动作+结果 | 突围成功、阴谋败露 |
+
+### ✅ 正确标题设计示例：
 假如分配了："第 1 章 → 核心事件：入职冲突", "第 2 章 → 核心事件：盟友背叛", "第 3 章 → 核心事件：秘密揭露"
 那么应该设计为：
-- 第 1 章 → 标题："入职风波"或"考核危机"（与其他章节完全不同）
-- 第 2 章 → 标题："背后捅刀"或"盟友反目"（使用不同的动词和名词）
-- 第 3 章 → 标题："惊天秘密"或"真相浮出"（使用独特的核心词汇）
+- 第 1 章 → 标题："风波骤起"（偏正结构，不直接使用"冲突"）
+- 第 2 章 → 标题："背后捅刀"（动宾结构，使用"背叛"的隐喻表达）
+- 第 3 章 → 标题："惊天秘密"（偏正结构，不直接使用"揭露"）
 
-### 错误示例（禁止使用，将导致生成失败）：
-- ❌ 第1章-事务局对策1
-- ❌ 第2章-事务局对策2  
-- ❌ 第3章-事务局对策3
-- ❌ 第1章-执行任务
-- ❌ 第2章-执行计划
-- ❌ 第3章-执行行动
+### ❌ 错误示例（禁止使用，将导致生成失败）：
+- ❌ 第1章-事务局危机
+- ❌ 第2章-诡异危机  
+- ❌ 第3章-死亡危机
+- ❌ 第1章-神秘秘闻
+- ❌ 第2章-惊人秘闻
+- ❌ 第3章-核心秘闻
+- ❌ 第1章-意外奇遇
+- ❌ 第2章-神秘奇遇
+- ❌ 第3章-惊险奇遇
+- ❌ 第1章-危机爆发（直接使用事件类型名称）
+- ❌ 第2章-秘密揭露（直接使用事件类型名称）
 
-### 标题多样性要求：
-- 每章标题必须使用**不同的核心动词**（如"风波"、"危机"、"秘闻"、"奇遇"、"决战"等）
-- 每章标题必须使用**不同的核心名词**（避免重复使用相同的地点、组织、物品名称）
-- 鼓励使用生动的动作词汇和具象化的场景描述
+### 📋 标题多样性强制要求：
+1. 每章标题必须使用**不同的核心动词**（从上方动词库中选择）
+2. 每章标题必须使用**不同的核心名词**（避免重复使用相同的地点、组织、物品名称）
+3. 每章标题必须使用**不同的结构模式**（交替使用主谓、动宾、偏正、并列、倒装、动补结构）
+4. **"危机"、"秘闻"、"奇遇"、"风波"、"对决"等词汇整个批次最多使用2次**
+5. 禁止连续2章使用相同结尾词
+6. **必须从本章summary内容中提取关键元素作为标题**（如人名、地点、动作）
+7. 鼓励使用生动的动作词汇和具象化的场景描述
 
-## 章节标题要求（非常重要，必须严格遵守）
-章节标题是读者对章节内容的第一印象，必须**直接反映该章分配的唯一核心事件**，禁止使用"情节推进""剧情发展"等通用词汇。
+## 🎯 章节标题生成规则（必读！）
+章节标题是读者对章节内容的第一印象，**必须从本章内容中动态提取**，禁止套用固定模式！
 
-**标题格式**：第 N 章 - 核心主题（主题 4-8 字，简洁有力）
-**标题示例**：
-- 第 1 章 - 退婚之辱
-- 第 2 章 - 神秘玉佩
-- 第 3 章 - 青锋山脉
-- 第 4 章 - 意外传承
-- 第 5 章 - 宗门考核
-- 第 6 章 - 秘境奇遇
-- 第 7 章 - 生死之战
-- 第 8 章 - 真相大白
-（注意：以上只是格式参考，内容必须根据你当前序列的实际情况设计）
+### 标题生成步骤：
+1. **阅读本章summary**，找出核心人物、关键动作、重要地点/物品
+2. **选择标题结构**（必须交替使用不同结构）
+3. **组合元素**形成标题（4-8字）
+4. **检查唯一性**（确保与其他章节标题不重复）
+
+### 标题生成示例（基于实际内容）：
+假设本章summary是："林砚在新人培训中首次实战，意外觉醒特殊能力，震惊全场"
+- ✅ 可提取：林砚（人物）、觉醒（动作）→ 标题："林砚觉醒"（主谓结构）
+- ✅ 可提取：特殊能力（物品）、觉醒（动作）→ 标题："觉醒异能"（动宾结构）
+- ❌ 禁止：危机、秘闻、奇遇等模式化词汇
+
+假设本章summary是："苏清鸢带领小队潜入秘境，发现上古传承"
+- ✅ 可提取：苏清鸢（人物）、潜入（动作）→ 标题："清鸢潜入"（主谓结构）
+- ✅ 可提取：秘境（地点）、传承（物品）→ 标题："秘境传承"（偏正结构）
+- ❌ 禁止：秘境奇遇（模式化）
+
+### 标题格式：
+**第 N 章 - 核心主题**（主题 4-8 字，简洁有力，必须反映本章内容）
+
+### 多样化标题示例（供参考）：
+- 主谓结构：林砚觉醒、清鸢出手、敌人来袭、传承显现
+- 动宾结构：揭秘真相、追踪线索、突破重围、守护同伴
+- 偏正结构：惊天秘密、诡异迷雾、上古传承、神秘玉佩
+- 并列结构：危机四伏、杀机暗藏、祸福相依、生死相依
+- 倒装结构：真相浮现、杀机显现、力量觉醒、命运交织
+- 动补结构：突围成功、阴谋败露、计划失败、危机化解
 
 ## 番茄爆款硬性规则
 1. **结尾钩子强制要求**：每章结尾必须设置以下三者其一：
@@ -781,46 +860,119 @@ class NarrativeEngine:
                     patch_fn=_patch,
                 )
                 for i, co in enumerate(outlines):
-                    co.chapter_number = actual_ch_start + i
-                    # 始终使用书籍设置中的目标字数覆盖所有章节
-                    co.target_words = words_per_chapter
-                    # 后处理：替换通用标题为有意义的标题
-                    if co.title and ("情节推进" in co.title or "剧情发展" in co.title or "章-" == co.title[-2:]):
-                        # 尝试从 beats 或 summary 提取关键词
+                    # 智能标题生成：从章节内容中动态提取
+                    # ================================================
+                    
+                    # 定义丰富的标题词汇库（用于构建多样化标题）
+                    ACTION_VERBS = ["觉醒", "突破", "发现", "遭遇", "击败", "获得", "揭露", "对决", 
+                                   "逃离", "潜入", "营救", "追踪", "探索", "揭秘", "逆袭", "逆转"]
+                    STATE_WORDS = ["骤变", "惊变", "异变", "危机", "转机", "决战", "抉择", "真相",
+                                   "秘密", "阴谋", "奇遇", "风波", "突破", "觉醒", "爆发", "崛起"]
+                    LOCATION_WORDS = ["秘境", "遗迹", "宫殿", "森林", "山脉", "洞穴", "基地", "学院"]
+                    OBJECT_WORDS = ["神器", "法宝", "丹药", "功法", "秘籍", "传承", "线索", "证据"]
+                    
+                    def extract_title_from_content(summary: str, beats: list) -> str:
+                        """从章节内容中提取标题"""
+                        # 1. 从摘要提取关键词
                         keywords = []
-                        if co.beats:
-                            for beat in co.beats:
+                        if summary:
+                            # 提取人名（常见姓氏）
+                            import re
+                            names = re.findall(r'[林苏沈顾陆叶萧楚秦韩赵魏齐周吴郑王刘陈杨张黄何郭罗马][^\s,，.。！？]{0,2}', summary)
+                            # 提取动作词
+                            actions = re.findall(r'(?:觉醒|突破|发现|遭遇|击败|获得|揭露|对决|逃离|潜入|营救|追踪|探索|揭秘)', summary)
+                            # 提取关键名词
+                            nouns = re.findall(r'(?:秘境|遗迹|神器|法宝|危机|秘密|真相|阴谋|传承|功法)', summary)
+                            
+                            keywords.extend(names[:2])
+                            keywords.extend(actions[:2])
+                            keywords.extend(nouns[:2])
+                        
+                        # 2. 从 beats 提取关键词
+                        if beats:
+                            for beat in beats[:2]:
                                 if beat.description:
-                                    keywords.extend(beat.description[:4].split()[:2])
-                        if co.summary:
-                            keywords.extend(co.summary[:8].split()[:2])
-                        if keywords:
-                            co.title = f"第{co.chapter_number}章-{''.join(keywords[:2])[:6]}"
-                        elif sequence.key_events:
-                            # 用 chapter_number 做偏移，保证同一批次内即使 key_events 不够也不重复
-                            event_index = (i * 7 + batch_idx * 13) % max(len(sequence.key_events), 1)
-                            co.title = f"第{co.chapter_number}章-{sequence.key_events[event_index][:6]}"
+                                    # 提取动作和名词
+                                    beat_actions = re.findall(r'(?:觉醒|突破|发现|遭遇|击败|获得|揭露)', beat.description)
+                                    beat_nouns = re.findall(r'(?:秘境|遗迹|神器|法宝|危机|秘密)', beat.description)
+                                    keywords.extend(beat_actions[:1])
+                                    keywords.extend(beat_nouns[:1])
+                        
+                        return keywords
+                    
+                    def generate_title_from_content(chapter_num: int, summary: str, beats: list, sequence_events: list, index: int) -> str:
+                        """基于章节内容生成唯一标题"""
+                        keywords = extract_title_from_content(summary, beats)
+                        
+                        # 优先级1: 使用提取的关键词构建标题
+                        if len(keywords) >= 2:
+                            title = f"第{chapter_num}章-{keywords[0]}{keywords[1][:2]}"
+                        elif len(keywords) == 1:
+                            # 添加一个动作词
+                            verb = ACTION_VERBS[index % len(ACTION_VERBS)]
+                            title = f"第{chapter_num}章-{keywords[0]}{verb[:2]}"
                         else:
-                            co.title = f"第{co.chapter_number}章-序章{co.chapter_number}"
+                            # 优先级2: 使用 key_events
+                            if sequence_events:
+                                event_index = (index * 7) % len(sequence_events)
+                                event_text = sequence_events[event_index]
+                                # 提取事件中的关键部分
+                                import re
+                                event_words = re.findall(r'[\u4e00-\u9fa5]{2,4}', event_text)
+                                if event_words:
+                                    title = f"第{chapter_num}章-{event_words[0]}"
+                                else:
+                                    title = f"第{chapter_num}章-{event_text[:6]}"
+                            else:
+                                # 优先级3: 使用预设词汇（最后选项）
+                                state_word = STATE_WORDS[index % len(STATE_WORDS)]
+                                title = f"第{chapter_num}章-{state_word}"
+                        
+                        # 清理标题
+                        title = title[:20]  # 限制长度
+                        title = title.rstrip("，。！？：；、,.:;!?")
+                        return title
+                    
+                    # 重新生成标题：优先从内容提取
+                    if co.summary or co.beats:
+                        new_title = generate_title_from_content(
+                            co.chapter_number, 
+                            co.summary, 
+                            co.beats, 
+                            sequence.key_events,
+                            i + batch_idx * batch_count
+                        )
+                        # 只在新标题更好时替换
+                        if len(new_title) > 6 and not any(p in new_title for p in ["情节推进", "剧情发展", "第"]):
+                            co.title = new_title
+                    elif "情节推进" in co.title or "剧情发展" in co.title or len(co.title) < 6:
+                        # 生成更好的标题
+                        co.title = generate_title_from_content(
+                            co.chapter_number, 
+                            "", 
+                            co.beats, 
+                            sequence.key_events,
+                            i + batch_idx * batch_count
+                        )
+                    
                     # 清理标题末尾的标点符号
                     if co.title:
                         co.title = co.title.rstrip("，。！？：；、,.:;!?")
                     
                     # 强制去重：如果本章标题与同批次中前几章重复，用完全不同的标题替换
-                    unique_suffixes = ["风波", "危机", "秘闻", "奇遇", "决战", "逆袭", "阴谋", "真相", "抉择", "转折"]
                     for prev_j in range(i):
-                        if co.title == outlines[prev_j].title or (co.title[3:] and outlines[prev_j].title[3:] and co.title[3:].startswith(outlines[prev_j].title[3:])):
-                            # 使用完全不同的标题，而不是追加章节号
-                            original_title = co.title
-                            base_title = original_title[3:] if len(original_title) > 3 else ""
-                            # 如果标题包含"节"或简单编号，完全重写
-                            if "节" in original_title or any(c.isdigit() for c in base_title[-3:]):
-                                suffix = unique_suffixes[(i + batch_idx) % len(unique_suffixes)]
-                                co.title = f"第{co.chapter_number}章-{sequence.key_events[0][:4] if sequence.key_events else '剧情'}{suffix}"
-                            else:
-                                # 追加一个有意义的后缀
-                                suffix = unique_suffixes[(i + batch_idx) % len(unique_suffixes)]
-                                co.title = f"{original_title}{suffix}"
+                        if co.title == outlines[prev_j].title or \
+                           (len(co.title) > 3 and len(outlines[prev_j].title) > 3 and 
+                            co.title[3:] == outlines[prev_j].title[3:]):
+                            # 使用完全不同的标题，基于内容重新生成
+                            new_title = generate_title_from_content(
+                                co.chapter_number,
+                                co.summary,
+                                co.beats,
+                                sequence.key_events,
+                                (i + batch_idx * batch_count) * 17  # 使用不同的种子
+                            )
+                            co.title = new_title
                             break
                 if len(outlines) > batch_count:
                     outlines = outlines[:batch_count]
@@ -863,9 +1015,145 @@ class NarrativeEngine:
                     "total_chapters": n_chapters,
                     "message": f"已完成第 {actual_ch_start}-{actual_ch_start + batch_count - 1} 章大纲"
                 })
+        
+        # ═══════════════════════════════════════════════════════════════════════
+        # 独立标题生成：专注生成高质量、多样化的标题
+        # ═══════════════════════════════════════════════════════════════════════
+        all_outlines = self._generate_titles_for_outlines(all_outlines, sequence, protagonist)
+        
         return all_outlines
+    
+    def _generate_titles_for_outlines(
+        self,
+        outlines: list[ChapterOutlineSchema],
+        sequence: SequenceSchema,
+        protagonist: CharacterSchema
+    ) -> list[ChapterOutlineSchema]:
+        """独立生成标题：基于所有章节内容生成高质量、多样化的标题"""
+        
+        if not outlines:
+            return outlines
+        
+        # 构建章节内容摘要列表
+        chapters_info = []
+        for i, co in enumerate(outlines):
+            chapters_info.append({
+                "chapter_number": co.chapter_number,
+                "summary": co.summary,
+                "beats": [b.description for b in co.beats] if co.beats else [],
+            })
+        
+        # 先将 JSON 序列化，避免与 f-string 冲突
+        chapters_json = json.dumps(chapters_info, ensure_ascii=False, indent=2)
+        
+        # 构建标题生成提示词
+        prompt = f"""
+你是一位资深的小说编辑，擅长为章节生成吸引人且多样化的标题。
 
-    # ── 3. 因果链提取 ──────────────────────────────────────────────────────────
+## 任务：为以下 {len(outlines)} 个章节生成独特的标题
+
+### 核心要求：
+1. **唯一性**：所有标题必须互不相同，禁止重复或高度相似
+2. **内容相关性**：每个标题必须直接反映对应章节的内容
+3. **结构多样性**：交替使用不同的标题结构（主谓、动宾、偏正、并列、倒装、动补）
+4. **词汇多样性**：禁止连续使用相同的结尾词（如"危机"、"秘闻"、"奇遇"最多使用2次）
+
+### 标题生成规则：
+- 从每个章节的summary中提取关键元素（人名、动作、地点、物品）
+- 标题长度：4-8个字，简洁有力
+- 格式：第N章-标题内容
+- 禁止使用模式化词汇：危机、秘闻、奇遇、风波、对决（每个最多使用2次）
+
+### 标题结构模式（必须交替使用）：
+- 主谓结构：主角+动作（如"林砚觉醒"）
+- 动宾结构：动作+对象（如"揭秘真相"）
+- 偏正结构：修饰+名词（如"惊天秘密"）
+- 并列结构：名词+名词（如"危机四伏"）
+- 倒装结构：宾语+动作（如"真相浮现"）
+- 动补结构：动作+结果（如"突围成功"）
+
+### 章节内容：
+{chapters_json}
+
+### 主角信息（参考）：
+- 姓名：{protagonist.name}
+- 身份：{protagonist.role}
+
+### 输出格式：
+只输出JSON数组，包含{len(outlines)}个对象，每个对象包含 "chapter_number" 和 "title" 字段。
+
+示例输出：
+[
+  {{"chapter_number": 1, "title": "第1章-林砚觉醒"}},
+  {{"chapter_number": 2, "title": "第2章-秘境探索"}},
+  {{"chapter_number": 3, "title": "第3章-传承获得"}}
+]
+"""
+        
+        def _call_titles():
+            resp = self.llm.complete([
+                LLMMessage("system", "你是精通标题设计的小说编辑，只输出合法JSON数组。"),
+                LLMMessage("user", prompt),
+            ])
+            # 解析响应
+            try:
+                titles_data = json.loads(resp.content)
+                return titles_data
+            except:
+                return None
+        
+        # 调用AI生成标题
+        try:
+            titles_data = with_retry(_call_titles)
+            
+            if titles_data and isinstance(titles_data, list):
+                # 更新标题
+                title_map = {t["chapter_number"]: t["title"] for t in titles_data if isinstance(t, dict)}
+                for co in outlines:
+                    if co.chapter_number in title_map:
+                        new_title = title_map[co.chapter_number]
+                        # 验证标题质量
+                        if len(new_title) >= 6 and "情节推进" not in new_title and "剧情发展" not in new_title:
+                            co.title = new_title
+        
+        except Exception as e:
+            # 如果独立标题生成失败，保持原有标题（已有后处理保障）
+            pass
+        
+        # 最后执行强制去重和优化
+        return self._optimize_titles_post_process(outlines)
+    
+    def _optimize_titles_post_process(self, outlines: list[ChapterOutlineSchema]) -> list[ChapterOutlineSchema]:
+        """后处理优化：确保所有标题唯一且多样化"""
+        
+        # 定义丰富的替代词汇
+        RICH_VERBS = ["觉醒", "突破", "蜕变", "逆袭", "逆转", "爆发", "崛起", "陨落", "复苏", "进化",
+                     "揭秘", "揭露", "发现", "洞察", "识破", "追踪", "搜寻", "探索", "挖掘", "揭晓"]
+        RICH_STATES = ["骤变", "惊变", "异变", "突变", "剧变", "逆转", "逆袭", "突破", "觉醒", "爆发",
+                      "崩塌", "瓦解", "粉碎", "破灭", "毁灭", "重建", "复兴", "崛起", "陨落", "复苏"]
+        
+        seen_titles = set()
+        for i, co in enumerate(outlines):
+            original = co.title
+            
+            # 清理标题
+            if co.title:
+                co.title = co.title.rstrip("，。！？：；、,.:;!?")
+            
+            # 确保唯一性
+            counter = 0
+            while co.title in seen_titles:
+                # 使用丰富的后缀，避免模式化
+                suffix = RICH_STATES[counter % len(RICH_STATES)]
+                co.title = f"{original[:-2] if len(original) > 2 else original}{suffix[:2]}"
+                counter += 1
+                if counter > 20:
+                    co.title = f"{original}[{counter}]"
+                    break
+            
+            seen_titles.add(co.title)
+        
+        return outlines
 
     def extract_causal_links(
         self,

@@ -324,6 +324,12 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft Ya
       <div class="form-group"><label class="form-label">每章字数</label><input class="form-input" id="cb-words" type="number" value="4000"></div>
     </div>
     <div class="form-group"><label class="form-label">禁止词（逗号分隔）</label><input class="form-input" id="cb-forbidden" placeholder="突然,忽然,竟然"></div>
+    <div class="form-group">
+      <label class="form-label">
+        <input type="checkbox" id="cb-use-predefined" checked> 使用预定义事件类型词汇库
+      </label>
+      <span class="text-muted" style="font-size:12px">（关闭后将完全依赖AI生成事件类型，可能增加API调用次数）</span>
+    </div>
     <div class="form-group"><label class="form-label">写作风格<span class="text-muted" style="font-weight:400;margin-left:4px">（一段话描述你想要的文风）</span></label>
       <textarea class="form-input" id="cb-style" rows="3" placeholder="例如：文笔简洁干练，对话幽默犀利，善用短句营造紧张感，描写偏电影镜头感，少用华丽辞藻"></textarea>
       <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px">
@@ -583,6 +589,7 @@ async function createBook() {
         words: parseInt(document.getElementById('cb-words').value) || 4000,
         forbidden: document.getElementById('cb-forbidden').value,
         style_guide: document.getElementById('cb-style').value,
+        use_predefined_events: document.getElementById('cb-use-predefined').checked,
       }),
     });
     toast(`「${title}」创建成功`, true);

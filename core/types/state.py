@@ -226,6 +226,8 @@ class BookConfig:
     style_guide: str = ""  # 文风指南（文风仿写用）
     # ── 多线叙事扩展字段 ──
     pov_characters: list[str] = field(default_factory=list)  # POV 视角角色 ID 列表（多主角时使用）
+    # ── 事件词汇库配置 ──
+    use_predefined_events: bool = True  # 是否使用预定义事件类型词汇库
 
 
 # ── 完整项目状态 ──────────────────────────────────────────────────────────────

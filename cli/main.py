@@ -265,6 +265,7 @@ def write(
                 words_per_chapter=state.config.target_words_per_chapter,
                 previous_chapter_titles=previous_chapter_titles,
                 genre=state.config.genre,  # 传递书籍题材
+                use_predefined_events=getattr(state.config, "use_predefined_events", True),  # 是否使用预定义词汇库
             )
             all_outlines.extend(cos)
             ch_start += len(cos)

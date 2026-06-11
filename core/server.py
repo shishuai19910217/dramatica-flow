@@ -227,6 +227,7 @@ class CreateBookReq(BaseModel):
     words: int = 4000
     forbidden: str = ""
     style_guide: str = ""
+    use_predefined_events: bool = True  # 是否使用预定义事件类型词汇库
 
 class SaveSettingsReq(BaseModel):
     deepseek_api_key: str = ""
@@ -381,6 +382,7 @@ def create_book(req: CreateBookReq):
         created_at=datetime.now(timezone.utc).isoformat(),
         custom_forbidden_words=[w.strip() for w in req.forbidden.split(",") if w.strip()],
         style_guide=req.style_guide,
+        use_predefined_events=req.use_predefined_events,
     )
     sm = StateManager(PROJECT_ROOT, book_id)
     sm.init(config)
@@ -2617,19 +2619,172 @@ async def ai_generate_chapter_outlines(book_id: str):
                 state.config.target_words_per_chapter,
                 None,
                 previous_chapter_titles,
+                genre=state.config.genre,
+                use_predefined_events=getattr(state.config, "use_predefined_events", True),
             )
             all_outlines.extend(cos)
             ch_start += len(cos)
             # 收集已生成的章节标题，供后续序列防重
             previous_chapter_titles.extend(co.title for co in cos)
 
-        # 最终去重校验：如果仍有重复标题，追加章节号作为后缀
-        seen_titles: dict[str, int] = {}
+        # ═══════════════════════════════════════════════════════════════════════
+        # 标题多样性强制优化（独立于事件词汇库，完全基于摘要内容）
+        # ═══════════════════════════════════════════════════════════════════════
+        
+        # 定义模式化词汇列表（硬编码，不依赖词汇库）
+        GENERIC_PATTERNS = ["危机", "秘闻", "奇遇", "风波", "冒险", "探险", "秘密", "真相", "对决", "战斗", 
+                          "冲突", "阴谋", "陷阱", "危机", "挑战", "考验", "试炼", "磨难", "劫难"]
+        
+        # 定义丰富的替代词汇（用于重构标题）
+        RICH_VERBS = ["觉醒", "突破", "蜕变", "逆袭", "逆转", "爆发", "崛起", "陨落", "复苏", "进化",
+                     "揭秘", "揭露", "发现", "洞察", "识破", "追踪", "搜寻", "探索", "挖掘", "揭晓",
+                     "交锋", "对决", "博弈", "较量", "抗衡", "争锋", "鏖战", "血战", "激战", "死斗",
+                     "潜入", "突袭", "营救", "突围", "截杀", "埋伏", "刺杀", "追杀", "奔袭", "猛攻"]
+        
+        RICH_STATES = ["骤变", "惊变", "异变", "突变", "剧变", "逆转", "逆袭", "突破", "觉醒", "爆发",
+                      "崩塌", "瓦解", "粉碎", "破灭", "毁灭", "重建", "复兴", "崛起", "陨落", "复苏"]
+        
+        def extract_title_elements(summary: str) -> dict:
+            """从摘要中提取可用于构建标题的元素"""
+            elements = {}
+            
+            # 1. 提取人名（常见姓氏）
+            elements["names"] = re.findall(r'[林苏沈顾陆叶萧楚秦韩赵魏齐周吴郑王刘陈杨张黄何郭罗马][^\s,，.。！？]{0,2}', summary)
+            
+            # 2. 提取地点/组织/场景
+            elements["locations"] = re.findall(
+                r'(?:事务局|研究所|基地|学院|宗门|秘境|遗迹|古城|废墟|洞穴|森林|山脉|海域|岛屿|宫殿|府邸|公司|集团|部门|团队|小组)', 
+                summary
+            )
+            
+            # 3. 提取关键动作
+            elements["actions"] = re.findall(
+                r'(?:觉醒|突破|发现|遭遇|击败|获得|揭露|对决|逃离|潜入|营救|调查|探索|进入|离开|追击|反击|防守|进攻|撤退)', 
+                summary
+            )
+            
+            # 4. 提取关键物品/概念
+            elements["objects"] = re.findall(
+                r'(?:神器|法宝|丹药|功法|秘籍|传承|线索|证据|真相|秘密|阴谋|计划|方案|策略|情报|消息)', 
+                summary
+            )
+            
+            # 5. 提取情感/状态词
+            elements["emotions"] = re.findall(
+                r'(?:愤怒|悲伤|喜悦|恐惧|绝望|希望|决心|勇气|信念|意志|愤怒|震惊|惊讶|疑惑)', 
+                summary
+            )
+            
+            return elements
+        
+        def generate_unique_title(chapter_num: int, summary: str, used_patterns: dict, existing_titles: set) -> str:
+            """基于摘要内容生成唯一标题"""
+            elements = extract_title_elements(summary)
+            
+            # 优先级1: 人名 + 动作
+            if elements["names"] and elements["actions"]:
+                base = f"{elements['names'][0]}{elements['actions'][0][:2]}"
+            
+            # 优先级2: 地点 + 动作
+            elif elements["locations"] and elements["actions"]:
+                base = f"{elements['locations'][0][:3]}{elements['actions'][0][:2]}"
+            
+            # 优先级3: 人名 + 状态词
+            elif elements["names"]:
+                verb = RICH_VERBS[len(used_patterns) % len(RICH_VERBS)]
+                base = f"{elements['names'][0]}{verb[:2]}"
+            
+            # 优先级4: 动作 + 物品
+            elif elements["actions"] and elements["objects"]:
+                base = f"{elements['actions'][0][:2]}{elements['objects'][0][:2]}"
+            
+            # 优先级5: 状态词
+            elif elements["actions"]:
+                base = elements["actions"][0][:4]
+            
+            # 优先级6: 使用丰富的替代词汇
+            else:
+                state = RICH_STATES[len(used_patterns) % len(RICH_STATES)]
+                base = state
+            
+            title = f"第{chapter_num}章-{base}"
+            
+            # 确保唯一性
+            counter = 0
+            while title in existing_titles:
+                suffix = RICH_VERBS[counter % len(RICH_VERBS)]
+                title = f"第{chapter_num}章-{base}{suffix[:2]}"
+                counter += 1
+                if counter > 10:
+                    title = f"第{chapter_num}章-{base}[{counter}]"
+                    break
+            
+            return title
+        
+        # ── 第一层：检测并替换模式化词汇 ───────────────────────────────────────
+        pattern_counts: dict[str, int] = {}
+        existing_titles = set()
+        
+        for o in all_outlines:
+            existing_titles.add(o.title)
+            for pattern in GENERIC_PATTERNS:
+                if pattern in o.title:
+                    if pattern not in pattern_counts:
+                        pattern_counts[pattern] = 0
+                    pattern_counts[pattern] += 1
+                    
+                    # 如果同一模式出现超过 1 次，强制重构标题
+                    if pattern_counts[pattern] > 1:
+                        new_title = generate_unique_title(
+                            o.chapter_number, 
+                            o.summary, 
+                            pattern_counts, 
+                            existing_titles
+                        )
+                        existing_titles.discard(o.title)  # 移除旧标题
+                        o.title = new_title
+                        existing_titles.add(new_title)  # 添加新标题
+                        break
+        
+        # ── 第二层：检测重复结尾词并优化 ───────────────────────────────────────
+        ending_pattern = re.compile(r'[-_](.+)$')
+        ending_counts: dict[str, list] = {}
+        
+        for o in all_outlines:
+            match = ending_pattern.search(o.title)
+            ending = match.group(1) if match else o.title[-2:] if len(o.title) >= 2 else o.title
+            if ending not in ending_counts:
+                ending_counts[ending] = []
+            ending_counts[ending].append(o)
+        
+        # 对重复的结尾词，强制优化
+        for ending, chapters in ending_counts.items():
+            if len(chapters) > 1:
+                for i, o in enumerate(chapters[1:], start=2):
+                    new_title = generate_unique_title(
+                        o.chapter_number,
+                        o.summary,
+                        {"ending": i},
+                        existing_titles
+                    )
+                    existing_titles.discard(o.title)
+                    o.title = new_title
+                    existing_titles.add(new_title)
+        
+        # ── 第三层：最终去重校验 ───────────────────────────────────────────────
+        final_titles: set[str] = set()
         for o in all_outlines:
             original = o.title
-            while o.title in seen_titles:
-                o.title = f"{original}-{seen_titles[original] + 1}"
-            seen_titles[o.title] = 1
+            counter = 0
+            while o.title in final_titles:
+                # 使用丰富的后缀
+                suffix = RICH_STATES[counter % len(RICH_STATES)]
+                o.title = f"{original}·{suffix[:2]}"
+                counter += 1
+                if counter > 20:
+                    o.title = f"{original}[{counter}]"
+                    break
+            final_titles.add(o.title)
 
         result_data = [o.model_dump() for o in all_outlines]
         path = sm.state_dir / "chapter_outlines.json"
@@ -2704,13 +2859,14 @@ async def ai_generate_chapter_outlines_stream(book_id: str):
                     seq_name = seq.summary[:20] + ("..." if len(seq.summary) > 20 else "")
                 
                 # 通知开始处理新序列
+                msg = f'开始处理「{seq_name}」（{seq.estimated_scenes}章）...'
                 yield f"data: {json.dumps({
                     'stage': 'sequence_start',
                     'sequence_index': current_sequence,
                     'total_sequences': total_sequences_local,
                     'sequence_name': seq_name,
                     'sequence_chapters': seq.estimated_scenes,
-                    'message': f'开始处理「{seq_name}」（{seq.estimated_scenes}章）...'
+                    'message': msg
                 }, ensure_ascii=False)}\n\n"
                 await asyncio.sleep(0.1)
 
@@ -2806,7 +2962,8 @@ async def ai_generate_chapter_outlines_stream(book_id: str):
         except Exception as e:
             import traceback
             traceback.print_exc()
-            yield f"data: {json.dumps({'stage': 'error', 'message': f'生成失败：{str(e)}'}, ensure_ascii=False)}\n\n"
+            error_msg = f'生成失败：{str(e)}'
+            yield f"data: {json.dumps({'stage': 'error', 'message': error_msg}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
         event_generator(),
@@ -4176,14 +4333,16 @@ async def action_write_stream(book_id: str, count: int = 1):
             ok = process.returncode == 0
             
             if ok:
-                yield f"data: {json.dumps({'stage': 'complete', 'message': f'成功完成{completed_chapters}章写作', 'completed_chapters': completed_chapters}, ensure_ascii=False)}\n\n"
+                complete_msg = f'成功完成{completed_chapters}章写作'
+                yield f"data: {json.dumps({'stage': 'complete', 'message': complete_msg, 'completed_chapters': completed_chapters}, ensure_ascii=False)}\n\n"
             else:
                 yield f"data: {json.dumps({'stage': 'error', 'message': '写作失败，请检查日志', 'stdout': stdout_str[-1000:]}, ensure_ascii=False)}\n\n"
                 
         except Exception as e:
             import traceback
             traceback.print_exc()
-            yield f"data: {json.dumps({'stage': 'error', 'message': f'执行出错：{str(e)}'}, ensure_ascii=False)}\n\n"
+            error_msg = f'执行出错：{str(e)}'
+            yield f"data: {json.dumps({'stage': 'error', 'message': error_msg}, ensure_ascii=False)}\n\n"
     
     return StreamingResponse(
         event_generator(),

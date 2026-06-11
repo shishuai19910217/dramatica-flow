@@ -1138,6 +1138,20 @@ class SummaryAgent:
         if len(chapter_content) > 4000:
             content_excerpt += "\n...(截断)"
 
+        # JSON模板需要单独定义，避免与f-string冲突
+        json_template = '''
+{{
+  "chapter_number": __CHAPTER_NUMBER__,
+  "title": "__CHAPTER_TITLE__",
+  "summary": "200字以内的情节摘要，说清楚发生了什么、谁做了什么决定",
+  "key_events": ["关键事件1", "关键事件2"],
+  "characters_appeared": ["出场角色名"],
+  "state_changes": ["世界状态变化，如「林尘到达青峰山」「林尘得知灵根封印」"],
+  "hook_updates": ["伏笔动态，如「新开：玉佩发热之谜」「推进：退婚之仇」"],
+  "emotional_note": "主角本章情感轨迹一句话，如「从屈辱到坚定」"
+}}
+'''.replace('__CHAPTER_NUMBER__', str(chapter_number)).replace('__CHAPTER_TITLE__', chapter_title)
+
         prompt = f"""\
 请为以下章节生成结构化摘要，供后续章节写作时作上下文参考。
 
@@ -1152,16 +1166,7 @@ class SummaryAgent:
 信息揭示：{settlement.info_revealed}
 
 ## 输出要求（JSON）
-{{
-  "chapter_number": {chapter_number},
-  "title": "{chapter_title}",
-  "summary": "200字以内的情节摘要，说清楚发生了什么、谁做了什么决定",
-  "key_events": ["关键事件1", "关键事件2"],
-  "characters_appeared": ["出场角色名"],
-  "state_changes": ["世界状态变化，如「林尘到达青峰山」「林尘得知灵根封印」"],
-  "hook_updates": ["伏笔动态，如「新开：玉佩发热之谜」「推进：退婚之仇」"],
-  "emotional_note": "主角本章情感轨迹一句话，如「从屈辱到坚定」"
-}}
+{json_template.strip()}
 
 只输出 JSON。"""
 
