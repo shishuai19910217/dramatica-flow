@@ -124,9 +124,13 @@ class LLMProvider(ABC):
 
 # ── DeepSeek Provider（OpenAI SDK 兼容） ──────────────────────────────────────
 
-def _retry_on_rate_limit(max_retries: int = 3, delay: int = 5):
+def _retry_on_rate_limit(max_retries: int | None = None, delay: int | None = None):
     """
     装饰器：在遇到速率限制或服务不可用时自动重试
+    
+    Args:
+        max_retries: 最大重试次数，默认为 None（从环境变量读取）
+        delay: 重试间隔（秒），默认为 None（从环境变量读取）
     """
     import time
     from functools import wraps
@@ -134,8 +138,12 @@ def _retry_on_rate_limit(max_retries: int = 3, delay: int = 5):
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
+            # 从环境变量读取配置，如果没有传入参数
+            retries = max_retries if max_retries is not None else int(os.environ.get("LLM_MAX_RETRIES", "3"))
+            base_delay = delay if delay is not None else int(os.environ.get("LLM_RETRY_DELAY", "5"))
+            
             last_exception = None
-            for attempt in range(max_retries):
+            for attempt in range(retries):
                 try:
                     return func(*args, **kwargs)
                 except Exception as e:
@@ -147,19 +155,20 @@ def _retry_on_rate_limit(max_retries: int = 3, delay: int = 5):
                         "rate limit" in error_str or
                         "503" in str(e) or
                         "service unavailable" in error_str or
-                        "temporarily unavailable" in error_str
+                        "temporarily unavailable" in error_str or
+                        "server error" in error_str
                     )
                     
                     if not is_rate_limit:
                         raise  # 非流控错误，直接抛出
                     
                     last_exception = e
-                    wait_time = delay * (2 ** attempt)  # 指数退避
-                    print(f"[LLM] 遇到流控限制，等待 {wait_time} 秒后重试 (第 {attempt + 1}/{max_retries} 次)")
+                    wait_time = base_delay * (2 ** attempt)  # 指数退避
+                    print(f"[LLM] 遇到服务不可用或流控限制，等待 {wait_time} 秒后重试 (第 {attempt + 1}/{retries} 次)")
                     time.sleep(wait_time)
             
             # 重试次数用尽
-            raise LLMError(f"LLM 调用失败：已重试 {max_retries} 次仍失败。错误：{str(last_exception)}")
+            raise LLMError(f"LLM 调用失败：已重试 {retries} 次仍失败。错误：{str(last_exception)}")
         return wrapper
     return decorator
 
@@ -196,7 +205,7 @@ class DeepSeekProvider(LLMProvider):
             kwargs["max_tokens"] = self.config.max_tokens
         return kwargs
 
-    @_retry_on_rate_limit(max_retries=3, delay=5)
+    @_retry_on_rate_limit()
     def complete(self, messages: list[LLMMessage]) -> LLMResponse:
         # 打印提示词
         _print_llm_prompt(messages, self.config, is_stream=False)
@@ -230,7 +239,7 @@ class DeepSeekProvider(LLMProvider):
                 raise LLMError(f"LLM 请求超时: {str(e)}")
             raise LLMError(f"LLM 调用失败: {str(e)}")
 
-    @_retry_on_rate_limit(max_retries=3, delay=5)
+    @_retry_on_rate_limit()
     def stream(self, messages: list[LLMMessage], on_chunk: Callable[[str], None]) -> LLMResponse:
         # 打印提示词
         _print_llm_prompt(messages, self.config, is_stream=True)
