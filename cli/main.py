@@ -40,23 +40,45 @@ console = Console()
 # ── LLM 工厂 ──────────────────────────────────────────────────────────────────
 
 def _require_key() -> str:
-    key = os.environ.get("DEEPSEEK_API_KEY", "")
+    """根据 LLM_PROVIDER 获取对应的 API Key"""
+    provider = os.environ.get("LLM_PROVIDER", "deepseek").lower()
+    
+    # 根据提供商选择对应的 API Key
+    key_env = f"{provider.upper()}_API_KEY"
+    key = os.environ.get(key_env, "")
+    
+    # 如果当前提供商没有设置，尝试回退到 DEEPSEEK_API_KEY（保持向后兼容）
+    if not key and provider != "custom":
+        key = os.environ.get("DEEPSEEK_API_KEY", "")
+    
+    # 检查 API Key 是否设置（只检查空值和默认占位符 sk-xxx）
     if not key or key.startswith("sk-xxx"):
-        console.print("[red]✗ 请先在 .env 中设置 DEEPSEEK_API_KEY[/red]")
+        console.print(f"[red]✗ 请先在 .env 中设置 {key_env}[/red]")
         raise typer.Exit(1)
+    
     return key
 
 
 def _llm(temperature: float | None = None, model_env: str = "DEEPSEEK_MODEL"):
     from core.llm import LLMConfig, DeepSeekProvider
+    
+    provider = os.environ.get("LLM_PROVIDER", "deepseek").lower()
+    
     # 获取模型，处理空字符串情况（.env 中设置了变量但值为空）
     model = os.environ.get(model_env, "")
     if not model:  # 如果为空或空字符串，使用默认模型
-        model = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+        model = os.environ.get(f"{provider.upper()}_MODEL", "")
+        if not model:
+            model = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+    
+    # 获取 Base URL
+    base_url = os.environ.get(f"{provider.upper()}_BASE_URL", "")
+    if not base_url:
+        base_url = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
     
     cfg = LLMConfig(
         api_key=_require_key(),
-        base_url=os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"),
+        base_url=base_url,
         model=model,
         temperature=temperature if temperature is not None
                     else float(os.environ.get("DEFAULT_TEMPERATURE", "0.7")),
@@ -760,20 +782,32 @@ def doctor(
     env_path = Path(project) / ".env"
     console.print(("[green]✓[/green]" if env_path.exists() else "[dim]-[/dim]") + " .env 文件")
 
-    key = os.environ.get("DEEPSEEK_API_KEY", "")
+    # 根据提供商检查对应的 API Key
+    provider = os.environ.get("LLM_PROVIDER", "deepseek").lower()
+    key_env = f"{provider.upper()}_API_KEY"
+    key = os.environ.get(key_env, "")
+    
+    # 如果当前提供商没有设置，尝试回退到 DEEPSEEK_API_KEY（保持向后兼容）
+    fallback_key = ""
+    if not key and provider != "custom":
+        fallback_key = os.environ.get("DEEPSEEK_API_KEY", "")
+    
     if key and not key.startswith("sk-xxx"):
-        console.print(f"[green]✓[/green] DEEPSEEK_API_KEY（{key[:8]}...）")
+        console.print(f"[green]✓[/green] {key_env}（{key[:8]}...）")
+    elif fallback_key and not fallback_key.startswith("sk-xxx"):
+        console.print(f"[green]✓[/green] {key_env}（使用 DEEPSEEK_API_KEY 回退，{fallback_key[:8]}...）")
     else:
-        console.print("[red]✗[/red] DEEPSEEK_API_KEY 未设置"); return
+        console.print(f"[red]✗[/red] {key_env} 未设置"); return
 
-    console.print("\n测试 API 连通性...")
+    console.print(f"\n测试 {provider} API 连通性...")
     try:
         from core.llm import LLMMessage
         resp = _llm().complete([LLMMessage("user", "只回复数字 42。")])
         ok = "42" in resp.content
         icon = "[green]✓[/green]" if ok else "[yellow]⚠[/yellow]"
+        model = os.environ.get(f"{provider.upper()}_MODEL", os.environ.get("DEEPSEEK_MODEL", "deepseek-chat"))
         console.print(f"{icon} API {'正常' if ok else '响应异常：' + resp.content[:40]}"
-                      f"（模型：{os.environ.get('DEEPSEEK_MODEL', 'deepseek-chat')}）")
+                      f"（模型：{model}）")
     except Exception as e:
         console.print(f"[red]✗[/red] 连接失败：{e}")
 
