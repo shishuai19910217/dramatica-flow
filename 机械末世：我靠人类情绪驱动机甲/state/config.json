@@ -1,0 +1,14 @@
+{
+  "id": "机械末世：我靠人类情绪驱动机甲",
+  "title": "机械末世：我靠人类情绪驱动机甲",
+  "genre": "科幻末世",
+  "target_words_per_chapter": 2300,
+  "target_chapters": 90,
+  "protagonist_id": "char_001",
+  "status": "planning",
+  "created_at": "",
+  "custom_forbidden_words": [],
+  "style_guide": "废土苍凉感，善用环境描写营造末世氛围，如锈蚀金属、辐射尘暴、废弃都市。人物心理聚焦生存挣扎与人性抉择，科技描写侧重文明衰退后的残片。多用短句营造压抑紧张感，善用明暗对比表现希望与绝望的张力",
+  "pov_characters": [],
+  "use_predefined_events": true
+}

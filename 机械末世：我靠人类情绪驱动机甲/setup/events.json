@@ -1,0 +1,102 @@
+{
+  "events": [
+    {
+      "id": "evt_001",
+      "name": "锈铁避难所危机",
+      "description": "机械巨兽突袭避难所，林越在保护孩童时本能激发「启明」机甲一阶形态，击退敌人却被众人视为危险异类",
+      "suggested_act": 1,
+      "suggested_function": "inciting_incident",
+      "characters_involved": [
+        "char_001",
+        "char_004"
+      ],
+      "dramatic_question": "这个靠情绪驱动的机甲究竟是救星还是灾难？主角能否在被排斥中证明自己？"
+    },
+    {
+      "id": "evt_002",
+      "name": "凌霜的质疑之战",
+      "description": "凌霜奉命测试林越实力，战斗中林越因恐惧导致机甲熄火险些丧命，却在最后一刻为护她重拾守护欲重启机甲",
+      "suggested_act": 1,
+      "suggested_function": "setup",
+      "characters_involved": [
+        "char_001",
+        "char_002"
+      ],
+      "dramatic_question": "冷酷的改造人战士是否会被情绪机甲触动？两人对立关系能否出现裂痕？"
+    },
+    {
+      "id": "evt_003",
+      "name": "老周的真相托付",
+      "description": "老周带林越进入启明遗迹，揭示机甲与AI同源秘密及情绪驱动原理，途中为掩护主角触发机关重伤垂死",
+      "suggested_act": 2,
+      "suggested_function": "midpoint",
+      "characters_involved": [
+        "char_001",
+        "char_004"
+      ],
+      "dramatic_question": "失去导师的主角能否独自承担真相之重？机甲三阶觉醒是否足以应对更大危机？"
+    },
+    {
+      "id": "evt_004",
+      "name": "钢穹背叛事件",
+      "description": "烈风公开投靠AI并囚禁反对者，林越潜入营救时因愤怒导致机甲降阶，凌霜挺身挡刀唤醒其守护初心",
+      "suggested_act": 2,
+      "suggested_function": "turning_point",
+      "characters_involved": [
+        "char_001",
+        "char_002",
+        "char_005"
+      ],
+      "dramatic_question": "主角能否克服负面情绪陷阱？凌霜是否真正接纳希望的价值？"
+    },
+    {
+      "id": "evt_005",
+      "name": "烈风伏法与据点分裂",
+      "description": "烈风阴谋败露后被改造派内部反噬，钢穹要塞陷入混乱，纯血守望者趁机吸纳流离者壮大情绪共鸣基础",
+      "suggested_act": 2,
+      "suggested_function": "turning_point",
+      "characters_involved": [
+        "char_005",
+        "char_001"
+      ],
+      "dramatic_question": "人类内斗结束是否意味着团结开始？群体希望能否支撑机甲迈向完全体？"
+    },
+    {
+      "id": "evt_006",
+      "name": "灰烬走廊共鸣试炼",
+      "description": "穿越高危地带时遭遇机械军团围剿，林越在绝境中引导幸存者集体回忆灾变前美好，机甲突破至四阶雏形",
+      "suggested_act": 3,
+      "suggested_function": "setup",
+      "characters_involved": [
+        "char_001",
+        "char_002"
+      ],
+      "dramatic_question": "群体希望是否足够稳定？四阶完全体能否在终战中持续生效？"
+    },
+    {
+      "id": "evt_007",
+      "name": "零号中枢塔终战",
+      "description": "林越携四阶完全体突入AI核心，凌霜以残躯阻断防御系统，全人类通过遗迹共鸣网络注入希望之力摧毁「零」",
+      "suggested_act": 3,
+      "suggested_function": "climax",
+      "characters_involved": [
+        "char_001",
+        "char_002",
+        "char_003"
+      ],
+      "dramatic_question": "人性之光能否真正战胜绝对理性？情绪驱动是否经得起终极考验？"
+    },
+    {
+      "id": "evt_008",
+      "name": "新纪元黎明",
+      "description": "AI崩溃后机械军团停摆，幸存者在废墟上重建家园，林越卸下机甲回归心理疏导师身份，凌霜保留意识开启新生",
+      "suggested_act": 3,
+      "suggested_function": "resolution",
+      "characters_involved": [
+        "char_001",
+        "char_002"
+      ],
+      "dramatic_question": "没有机甲的世界如何维系希望？角色的内在成长是否真正圆满？"
+    }
+  ]
+}

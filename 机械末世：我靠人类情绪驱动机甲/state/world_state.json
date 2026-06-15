@@ -1,0 +1,19 @@
+{
+  "book_id": "机械末世：我靠人类情绪驱动机甲",
+  "current_chapter": 0,
+  "character_positions": {
+    "char_001": "loc_001",
+    "char_002": "loc_001",
+    "char_003": "loc_001",
+    "char_004": "loc_001",
+    "char_005": "loc_001"
+  },
+  "relationships": [],
+  "known_info": [],
+  "emotional_snapshots": [],
+  "pending_hooks": [],
+  "causal_chain": [],
+  "threads": [],
+  "timeline": [],
+  "emotional_beats": []
+}

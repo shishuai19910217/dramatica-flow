@@ -65,9 +65,10 @@ def _llm(temperature: float | None = None, model_env: str = "DEEPSEEK_MODEL"):
     provider = os.environ.get("LLM_PROVIDER", "deepseek").lower()
     
     # 获取模型，处理空字符串情况（.env 中设置了变量但值为空）
-    model = os.environ.get(model_env, "")
-    if not model:  # 如果为空或空字符串，使用默认模型
-        model = os.environ.get(f"{provider.upper()}_MODEL", "")
+    # 优先读取当前 provider 的模型配置（如 CUSTOM_MODEL）
+    model = os.environ.get(f"{provider.upper()}_MODEL", "")
+    if not model:  # 如果当前 provider 没有配置，使用指定的 model_env
+        model = os.environ.get(model_env, "")
         if not model:
             model = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
     

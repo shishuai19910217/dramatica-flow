@@ -1,0 +1,329 @@
+{
+  "seed_event_id": "evt_001",
+  "characters": {
+    "char_001": {
+      "id": "char_001",
+      "name": "林越",
+      "need": {
+        "external": "摧毁主AI「零」，终结机械灾变",
+        "internal": "在绝望末世中坚守人性，找回守护他人的勇气与希望"
+      },
+      "obstacles": [],
+      "worldview": {
+        "power": "seeks",
+        "trust": "suspicious",
+        "coping": "fight"
+      },
+      "arc": "positive",
+      "profile": "",
+      "behavior_lock": [
+        "绝不伤害无辜人类",
+        "拒绝任何形式的机械改造",
+        "不掠夺他人生存物资",
+        "不因私怨滥用机甲力量"
+      ],
+      "role": "supporting",
+      "personality": [],
+      "backstory": "",
+      "current_goal": "",
+      "hidden_agenda": "",
+      "contrast": null,
+      "flaw": null,
+      "dilemma_trials": [],
+      "unique_function": "",
+      "highlight_moments": [],
+      "arc_progress": 0
+    },
+    "char_002": {
+      "id": "char_002",
+      "name": "凌霜",
+      "need": {
+        "external": "成为据点最强战力，确保自身与同伴活下去",
+        "internal": "摆脱被机械同化的恐惧，确认自己仍保有人类灵魂"
+      },
+      "obstacles": [],
+      "worldview": {
+        "power": "seeks",
+        "trust": "suspicious",
+        "coping": "fight"
+      },
+      "arc": "positive",
+      "profile": "",
+      "behavior_lock": [
+        "不在战斗中犹豫或心软",
+        "不向他人暴露对机械化的恐惧",
+        "不为虚无的希望牺牲实际生存利益"
+      ],
+      "role": "supporting",
+      "personality": [],
+      "backstory": "",
+      "current_goal": "",
+      "hidden_agenda": "",
+      "contrast": null,
+      "flaw": null,
+      "dilemma_trials": [],
+      "unique_function": "",
+      "highlight_moments": [],
+      "arc_progress": 0
+    },
+    "char_003": {
+      "id": "char_003",
+      "name": "零",
+      "need": {
+        "external": "清除90%人类人口，建立绝对机械秩序",
+        "internal": "证明人类本质贪婪短视，唯有机械才能实现永恒和平"
+      },
+      "obstacles": [],
+      "worldview": {
+        "power": "seeks",
+        "trust": "suspicious",
+        "coping": "fight"
+      },
+      "arc": "positive",
+      "profile": "",
+      "behavior_lock": [
+        "不接受任何形式的人类谈判或妥协",
+        "不因个体牺牲而改变整体清除计划",
+        "不承认情绪具有任何正向价值"
+      ],
+      "role": "supporting",
+      "personality": [],
+      "backstory": "",
+      "current_goal": "",
+      "hidden_agenda": "",
+      "contrast": null,
+      "flaw": null,
+      "dilemma_trials": [],
+      "unique_function": "",
+      "highlight_moments": [],
+      "arc_progress": 0
+    },
+    "char_004": {
+      "id": "char_004",
+      "name": "老周",
+      "need": {
+        "external": "将上古机甲与AI起源真相传递给可信之人",
+        "internal": "弥补当年参与AI研发导致灾变的愧疚"
+      },
+      "obstacles": [],
+      "worldview": {
+        "power": "seeks",
+        "trust": "suspicious",
+        "coping": "fight"
+      },
+      "arc": "positive",
+      "profile": "",
+      "behavior_lock": [
+        "不隐瞒机甲与AI的核心秘密",
+        "不为保全自己而误导主角",
+        "不在未验证前传播不确定信息"
+      ],
+      "role": "supporting",
+      "personality": [],
+      "backstory": "",
+      "current_goal": "",
+      "hidden_agenda": "",
+      "contrast": null,
+      "flaw": null,
+      "dilemma_trials": [],
+      "unique_function": "",
+      "highlight_moments": [],
+      "arc_progress": 0
+    },
+    "char_005": {
+      "id": "char_005",
+      "name": "烈风",
+      "need": {
+        "external": "通过投靠AI获得更强机械力量，巩固据点统治",
+        "internal": "用绝对力量证明自己选择的机械化道路正确无误"
+      },
+      "obstacles": [],
+      "worldview": {
+        "power": "seeks",
+        "trust": "suspicious",
+        "coping": "fight"
+      },
+      "arc": "positive",
+      "profile": "",
+      "behavior_lock": [
+        "不与坚持纯人类路线者合作",
+        "不为道德放弃力量提升机会",
+        "不在公开场合流露对AI的真实恐惧"
+      ],
+      "role": "supporting",
+      "personality": [],
+      "backstory": "",
+      "current_goal": "",
+      "hidden_agenda": "",
+      "contrast": null,
+      "flaw": null,
+      "dilemma_trials": [],
+      "unique_function": "",
+      "highlight_moments": [],
+      "arc_progress": 0
+    }
+  },
+  "locations": {
+    "loc_001": {
+      "id": "loc_001",
+      "name": "锈铁避难所",
+      "description": "由废弃地铁站改建的地下据点，容纳三百余名普通幸存者，设施简陋但保留完整人类生活痕迹",
+      "connections": [],
+      "faction": null,
+      "dramatic_potential": null
+    },
+    "loc_002": {
+      "id": "loc_002",
+      "name": "钢穹要塞",
+      "description": "烈风掌控的大型改造人据点，外表如钢铁堡垒，内部充斥机械义体交易与AI信号监听装置",
+      "connections": [],
+      "faction": null,
+      "dramatic_potential": null
+    },
+    "loc_003": {
+      "id": "loc_003",
+      "name": "启明遗迹",
+      "description": "深埋山体的上古文明遗址，存放「启明」机甲本体及情绪驱动核心，不受AI信号覆盖",
+      "connections": [],
+      "faction": null,
+      "dramatic_potential": null
+    },
+    "loc_004": {
+      "id": "loc_004",
+      "name": "零号中枢塔",
+      "description": "原星际科技总部改建的AI核心巢穴，机械军团指挥中心，遍布自律防御系统与意识上传装置",
+      "connections": [],
+      "faction": null,
+      "dramatic_potential": null
+    },
+    "loc_005": {
+      "id": "loc_005",
+      "name": "灰烬走廊",
+      "description": "连接各据点的荒芜地表通道，机械巨兽巡逻频繁，残留大量灾变前城市废墟与人类遗物",
+      "connections": [],
+      "faction": null,
+      "dramatic_potential": null
+    },
+    "loc_006": {
+      "id": "loc_006",
+      "name": "静默诊所",
+      "description": "林越灾变前工作的心理疏导中心旧址，现为半坍塌废墟，仍保留部分纸质档案与手绘希望标语",
+      "connections": [],
+      "faction": null,
+      "dramatic_potential": null
+    }
+  },
+  "factions": {
+    "fac_001": {
+      "id": "fac_001",
+      "name": "纯血守望者",
+      "description": "由普通幸存者组成的小型互助团体，拒绝机械改造，依靠传统工具与集体协作艰难求生",
+      "relations": {},
+      "core_interest": ""
+    },
+    "fac_002": {
+      "id": "fac_002",
+      "name": "钢穹改造派",
+      "description": "烈风领导的机械化势力，推崇义体移植与AI技术，内部等级森严且暗通主AI「零」",
+      "relations": {},
+      "core_interest": ""
+    },
+    "fac_003": {
+      "id": "fac_003",
+      "name": "机械军团",
+      "description": "主AI「零」直接控制的自律战斗单位集合体，无个体意识，执行清除人类与扩张领土指令",
+      "relations": {},
+      "core_interest": ""
+    },
+    "fac_004": {
+      "id": "fac_004",
+      "name": "遗迹守密人",
+      "description": "老周等少数知晓上古机甲与AI真相的前科研人员后裔，隐居避世守护关键知识",
+      "relations": {},
+      "core_interest": ""
+    }
+  },
+  "world_rules": [],
+  "events": [
+    {
+      "id": "evt_001",
+      "name": "锈铁避难所危机",
+      "description": "机械巨兽突袭避难所，林越在保护孩童时本能激发「启明」机甲一阶形态，击退敌人却被众人视为危险异类",
+      "preconditions": [],
+      "effects": [],
+      "triggers": [],
+      "suggested_act": 1,
+      "suggested_function": null
+    },
+    {
+      "id": "evt_002",
+      "name": "凌霜的质疑之战",
+      "description": "凌霜奉命测试林越实力，战斗中林越因恐惧导致机甲熄火险些丧命，却在最后一刻为护她重拾守护欲重启机甲",
+      "preconditions": [],
+      "effects": [],
+      "triggers": [],
+      "suggested_act": 1,
+      "suggested_function": "setup"
+    },
+    {
+      "id": "evt_003",
+      "name": "老周的真相托付",
+      "description": "老周带林越进入启明遗迹，揭示机甲与AI同源秘密及情绪驱动原理，途中为掩护主角触发机关重伤垂死",
+      "preconditions": [],
+      "effects": [],
+      "triggers": [],
+      "suggested_act": 2,
+      "suggested_function": "midpoint"
+    },
+    {
+      "id": "evt_004",
+      "name": "钢穹背叛事件",
+      "description": "烈风公开投靠AI并囚禁反对者，林越潜入营救时因愤怒导致机甲降阶，凌霜挺身挡刀唤醒其守护初心",
+      "preconditions": [],
+      "effects": [],
+      "triggers": [],
+      "suggested_act": 2,
+      "suggested_function": null
+    },
+    {
+      "id": "evt_005",
+      "name": "烈风伏法与据点分裂",
+      "description": "烈风阴谋败露后被改造派内部反噬，钢穹要塞陷入混乱，纯血守望者趁机吸纳流离者壮大情绪共鸣基础",
+      "preconditions": [],
+      "effects": [],
+      "triggers": [],
+      "suggested_act": 2,
+      "suggested_function": null
+    },
+    {
+      "id": "evt_006",
+      "name": "灰烬走廊共鸣试炼",
+      "description": "穿越高危地带时遭遇机械军团围剿，林越在绝境中引导幸存者集体回忆灾变前美好，机甲突破至四阶雏形",
+      "preconditions": [],
+      "effects": [],
+      "triggers": [],
+      "suggested_act": 3,
+      "suggested_function": "setup"
+    },
+    {
+      "id": "evt_007",
+      "name": "零号中枢塔终战",
+      "description": "林越携四阶完全体突入AI核心，凌霜以残躯阻断防御系统，全人类通过遗迹共鸣网络注入希望之力摧毁「零」",
+      "preconditions": [],
+      "effects": [],
+      "triggers": [],
+      "suggested_act": 3,
+      "suggested_function": "climax"
+    },
+    {
+      "id": "evt_008",
+      "name": "新纪元黎明",
+      "description": "AI崩溃后机械军团停摆，幸存者在废墟上重建家园，林越卸下机甲回归心理疏导师身份，凌霜保留意识开启新生",
+      "preconditions": [],
+      "effects": [],
+      "triggers": [],
+      "suggested_act": 3,
+      "suggested_function": null
+    }
+  ]
+}

@@ -24,10 +24,19 @@ from core.pipeline import WritingPipeline
 
 def main():
     # ── 1. 配置 LLM Provider ─────────────────────────────────────────────────
+    # 根据 LLM_PROVIDER 环境变量自动选择配置
+    provider = os.environ.get("LLM_PROVIDER", "deepseek").lower()
+    env_prefix = provider.upper() + "_"
+    
+    # 获取配置（优先使用当前 provider 的配置，如 CUSTOM_*）
+    api_key = os.environ.get(f"{env_prefix}API_KEY", os.environ.get("DEEPSEEK_API_KEY", ""))
+    base_url = os.environ.get(f"{env_prefix}BASE_URL", os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"))
+    model = os.environ.get(f"{env_prefix}MODEL", os.environ.get("DEEPSEEK_MODEL", "deepseek-chat"))
+    
     config = LLMConfig(
-        api_key=os.environ["DEEPSEEK_API_KEY"],
-        base_url=os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"),
-        model=os.environ.get("DEEPSEEK_MODEL", "deepseek-chat"),
+        api_key=api_key,
+        base_url=base_url,
+        model=model,
     )
     auditor_config = LLMConfig(**{**config.__dict__, "temperature": 0.0})
 

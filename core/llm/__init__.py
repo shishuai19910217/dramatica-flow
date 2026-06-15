@@ -210,6 +210,18 @@ class DeepSeekProvider(LLMProvider):
         # 打印提示词
         _print_llm_prompt(messages, self.config, is_stream=False)
         
+        # 添加详细调试日志
+        total_chars = sum(len(m.content) for m in messages)
+        total_tokens_estimate = total_chars // 4  # 粗略估计
+        print(f"[DEBUG LLM] 请求详情:")
+        print(f"[DEBUG LLM]   消息数: {len(messages)}")
+        print(f"[DEBUG LLM]   总字符数: {total_chars}")
+        print(f"[DEBUG LLM]   预估 Token 数: {total_tokens_estimate}")
+        print(f"[DEBUG LLM]   模型: {self.config.model}")
+        print(f"[DEBUG LLM]   温度: {self.config.temperature}")
+        print(f"[DEBUG LLM]   超时: {self.client.timeout}秒")
+        print(f"[DEBUG LLM]   开始发送请求...")
+        
         try:
             response = self.client.chat.completions.create(
                 messages=[m.to_dict() for m in messages], **self._build_kwargs(stream=False))
@@ -227,14 +239,22 @@ class DeepSeekProvider(LLMProvider):
                 raise LLMError("LLM 返回内容为空")
             
             usage = response.usage
+            print(f"[DEBUG LLM]   请求成功!")
+            print(f"[DEBUG LLM]   输入 Token: {usage.prompt_tokens if usage else 0}")
+            print(f"[DEBUG LLM]   输出 Token: {usage.completion_tokens if usage else 0}")
+            print(f"[DEBUG LLM]   响应长度: {len(content)} 字符")
             return LLMResponse(
                 content=content,
                 input_tokens=usage.prompt_tokens if usage else 0,
                 output_tokens=usage.completion_tokens if usage else 0,
             )
         except Exception as e:
-            # 检查是否是超时错误
+            # 添加错误详情日志
             error_str = str(e).lower()
+            print(f"[DEBUG LLM]   请求失败!")
+            print(f"[DEBUG LLM]   错误类型: {type(e).__name__}")
+            print(f"[DEBUG LLM]   错误详情: {str(e)}")
+            # 检查是否是超时错误
             if "timeout" in error_str or "timed out" in error_str:
                 raise LLMError(f"LLM 请求超时: {str(e)}")
             raise LLMError(f"LLM 调用失败: {str(e)}")
@@ -628,11 +648,11 @@ def with_retry(
 def create_provider(config: LLMConfig | None = None, provider_type: str | None = None) -> LLMProvider:
     """
     从环境变量或显式配置创建 Provider。
-    默认读取 .env 中的 DEEPSEEK_* 配置。
+    根据 LLM_PROVIDER 环境变量自动选择配置（deepseek / ollama / custom / zhipu / moonshot / qwen）。
     
     Args:
         config: 显式配置，如未提供则从环境变量读取
-        provider_type: "deepseek" 或 "ollama"，如未指定则从 LLM_PROVIDER 环境变量读取
+        provider_type: Provider 类型，如未指定则从 LLM_PROVIDER 环境变量读取
     """
     if provider_type is None:
         provider_type = os.environ.get("LLM_PROVIDER", "deepseek").lower()
@@ -642,12 +662,31 @@ def create_provider(config: LLMConfig | None = None, provider_type: str | None =
             return OllamaProvider()
         return OllamaProvider(config)
     
-    # 默认使用 DeepSeek
+    # 通用 OpenAI 兼容模式（deepseek / custom / zhipu / moonshot / qwen）
     if config is None:
+        env_prefix = provider_type.upper() + "_"
+        
+        # 获取 API Key
+        api_key = os.environ.get(f"{env_prefix}API_KEY", "")
+        if not api_key and provider_type != "custom":
+            api_key = os.environ.get("DEEPSEEK_API_KEY", "")
+        
+        # 获取 Base URL
+        base_url = os.environ.get(f"{env_prefix}BASE_URL", "")
+        if not base_url:
+            if provider_type != "custom":
+                base_url = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
+        
+        # 获取模型（优先使用当前 provider 的模型）
+        model = os.environ.get(f"{env_prefix}MODEL", "")
+        if not model:
+            if provider_type != "custom":
+                model = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+        
         config = LLMConfig(
-            api_key  = os.environ.get("DEEPSEEK_API_KEY", ""),
-            base_url = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"),
-            model    = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat"),
-            temperature = float(os.environ.get("DEFAULT_TEMPERATURE", "0.7")),
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
+            temperature=float(os.environ.get("DEFAULT_TEMPERATURE", "0.7")),
         )
     return DeepSeekProvider(config)

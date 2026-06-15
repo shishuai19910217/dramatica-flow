@@ -230,14 +230,15 @@ def _create_llm(temperature: float | None = None, model_env: str = "DEEPSEEK_MOD
     if not base_url:
         raise HTTPException(400, f"请先配置 {provider} 的 BASE_URL")
     
-    # 获取模型（优先使用 agent 特定模型，如 AUDITOR_MODEL）
-    model = os.environ.get(model_env, "") or os.environ.get(f"{env_prefix}MODEL", "")
-    if not model:
-        if provider != "custom":
+    # 获取模型（优先使用当前 provider 的模型配置，如 CUSTOM_MODEL）
+    model = os.environ.get(f"{env_prefix}MODEL", "")
+    if not model:  # 如果当前 provider 没有配置，使用指定的 model_env（如 AUDITOR_MODEL）
+        model = os.environ.get(model_env, "")
+        if not model and provider != "custom":
             model = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
     
     if not model:
-        raise HTTPException(400, f"请先配置模型（{model_env} 或 {env_prefix}MODEL）")
+        raise HTTPException(400, f"请先配置模型（{env_prefix}MODEL 或 {model_env}）")
     
     cfg = LLMConfig(api_key=key, base_url=base_url, model=model, temperature=temp, max_tokens=max_tokens)
     return create_provider(cfg)
