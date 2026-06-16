@@ -49,6 +49,8 @@ from .types.narrative import Character, NarrativeThread, TimelineEvent
 from .types.state import (
     TruthFileKey, EmotionalSnapshot, CausalLink, AffectedDecision,
     Hook, HookType, HookStatus,
+    RelationshipRecord, RelationshipType, RelationshipDelta,
+    KnownInfoRecord,
 )
 # 验证器导入
 from .validators import PostWriteValidator
@@ -740,157 +742,136 @@ class WritingPipeline:
             writer_output: 写手输出，包含结算表
             blueprint: 建筑师蓝图
         """
-        s = writer_output.settlement  # 写后结算表
+        s = writer_output.settlement
+
+        ws = self.sm.read_world_state()
 
         # 1. 角色位置变化
         for change in s.character_position_changes:
-            try:
-                if not isinstance(change, dict):
-                    continue
-                char_id = change.get("character_id", "")
-                loc_id = change.get("location_id", "")
-                if char_id and loc_id:
-                    self.sm.move_character(char_id, loc_id)
-            except Exception as e:
-                log(f"角色位置变化处理失败：{e}")
+            if not isinstance(change, dict):
+                continue
+            char_id = change.get("character_id", "")
+            loc_id = change.get("location_id", "")
+            if char_id and loc_id:
+                ws.character_positions[char_id] = loc_id
 
         # 2. 情感变化
         for ec in s.emotional_changes:
+            if not isinstance(ec, dict):
+                continue
+            char_id = ec.get("character_id", "")
+            if not char_id:
+                continue
+            intensity_val = ec.get("intensity", 5)
             try:
-                if not isinstance(ec, dict):
-                    continue
-                char_id = ec.get("character_id", "")
-                if not char_id:
-                    continue
-                # 创建情感快照（安全处理 intensity）
-                intensity_val = ec.get("intensity", 5)
-                try:
-                    intensity = int(intensity_val)
-                except (ValueError, TypeError):
-                    intensity = 5
-                snap = EmotionalSnapshot(
-                    character_id=char_id,
-                    emotion=ec.get("emotion", "未知"),
-                    intensity=intensity,
-                    chapter=chapter,
-                    trigger=ec.get("trigger", ""),
-                )
-                self.sm.record_emotion(snap)
-                # 更新 emotional_arcs.md
-                self.sm.append_truth(
-                    TruthFileKey.EMOTIONAL_ARCS,
-                    f"- Ch.{chapter} [{char_id}] {snap.emotion}（{snap.intensity}/10）：{snap.trigger}\n",
-                )
-            except Exception as e:
-                log(f"情感变化处理失败：{e}")
+                intensity = int(intensity_val)
+            except (ValueError, TypeError):
+                intensity = 5
+            snap = EmotionalSnapshot(
+                character_id=char_id,
+                emotion=ec.get("emotion", "未知"),
+                intensity=intensity,
+                chapter=chapter,
+                trigger=ec.get("trigger", ""),
+            )
+            ws.emotional_snapshots.append(snap)
+            self.sm.append_truth(
+                TruthFileKey.EMOTIONAL_ARCS,
+                f"- Ch.{chapter} [{char_id}] {snap.emotion}（{snap.intensity}/10）：{snap.trigger}\n",
+            )
 
         # 3. 关系变化（格式：「角色A-角色B：delta，原因」）
-        # 示例："林尘-慕雪：+20，慕雪开始动摇"
         for rel_str in s.relationship_changes:
-            try:
-                parts = rel_str.split("：", 1)  # 按中文冒号分割
-                if len(parts) == 2:
-                    chars_part = parts[0].strip()
-                    detail = parts[1].strip()
-                    chars = chars_part.split("-", 1)  # 按连字符分割两个角色
-                    if len(chars) == 2:
-                        char_a = chars[0].strip()
-                        char_b = chars[1].strip()
-                        # 从 detail 中提取变化量（如 +20 或 -10）
-                        m = re.search(r'([+-]\d+)', detail)
-                        delta = int(m.group(1)) if m else 0
-                        # 提取原因（移除数字部分）
-                        reason = re.sub(r'[+-]\d+[，,]?\s*', '', detail).strip()
-                        # 更新关系
-                        self.sm.update_relationship(char_a, char_b, delta, chapter, reason)
-            except Exception as e:
-                log(f"关系变化处理失败：{e}")
+            parts = rel_str.split("：", 1)
+            if len(parts) == 2:
+                chars_part = parts[0].strip()
+                detail = parts[1].strip()
+                chars = chars_part.split("-", 1)
+                if len(chars) == 2:
+                    char_a = chars[0].strip()
+                    char_b = chars[1].strip()
+                    m = re.search(r'([+-]\d+)', detail)
+                    delta = int(m.group(1)) if m else 0
+                    reason = re.sub(r'[+-]\d+[，,]?\s*', '', detail).strip()
+                    key = ":".join(sorted([char_a, char_b]))
+                    rel = next((r for r in ws.relationships if r.key == key), None)
+                    if rel is None:
+                        rel = RelationshipRecord(
+                            character_a=char_a,
+                            character_b=char_b,
+                            type=RelationshipType.NEUTRAL,
+                            strength=0,
+                        )
+                        ws.relationships.append(rel)
+                    rel.strength = max(-100, min(100, rel.strength + delta))
+                    rel.history.append(RelationshipDelta(chapter=chapter, delta=delta, reason=reason))
 
         # 4. 新开伏笔（来自写手结算表）
         for hook_desc in s.new_hooks:
-            try:
-                if not hook_desc or not isinstance(hook_desc, str):
-                    continue
-                hook = Hook(
-                    id=f"hook_{uuid.uuid4().hex[:8]}",
-                    type=HookType.FORESHADOW,
-                    description=hook_desc,
-                    planted_in_chapter=chapter,
-                    expected_resolution_range=(chapter + 3, chapter + 25),  # 预期回收范围
-                    status=HookStatus.OPEN,
-                )
-                self.sm.open_hook(hook)
-            except Exception as e:
-                log(f"新开伏笔处理失败：{e}")
+            if not hook_desc or not isinstance(hook_desc, str):
+                continue
+            hook = Hook(
+                id=f"hook_{uuid.uuid4().hex[:8]}",
+                type=HookType.FORESHADOW,
+                description=hook_desc,
+                planted_in_chapter=chapter,
+                expected_resolution_range=(chapter + 3, chapter + 25),
+                status=HookStatus.OPEN,
+            )
+            if not any(h.id == hook.id for h in ws.pending_hooks):
+                ws.pending_hooks.append(hook)
 
         # 5. 建筑师计划埋下的伏笔（来自蓝图）
         for hook_desc in blueprint.hooks_to_plant:
-            try:
-                if not hook_desc or not isinstance(hook_desc, str):
-                    continue
-                if hook_desc in s.new_hooks:  # 避免重复
-                    continue
-                hook = Hook(
-                    id=f"hook_{uuid.uuid4().hex[:8]}",
-                    type=HookType.FORESHADOW,
-                    description=hook_desc,
-                    planted_in_chapter=chapter,
-                    expected_resolution_range=(chapter + 5, chapter + 30),  # 稍长的回收周期
-                    status=HookStatus.OPEN,
-                )
-                self.sm.open_hook(hook)
-            except Exception as e:
-                log(f"蓝图伏笔处理失败：{e}")
+            if not hook_desc or not isinstance(hook_desc, str):
+                continue
+            if hook_desc in s.new_hooks:
+                continue
+            hook = Hook(
+                id=f"hook_{uuid.uuid4().hex[:8]}",
+                type=HookType.FORESHADOW,
+                description=hook_desc,
+                planted_in_chapter=chapter,
+                expected_resolution_range=(chapter + 5, chapter + 30),
+                status=HookStatus.OPEN,
+            )
+            if not any(h.id == hook.id for h in ws.pending_hooks):
+                ws.pending_hooks.append(hook)
 
         # 6. 回收伏笔（标记为已解决）
-        # 支持通过描述匹配伏笔（写手输出的是描述而不是 ID）
-        try:
-            ws = self.sm.read_world_state()
-            open_hooks = [h for h in ws.pending_hooks if h.status == HookStatus.OPEN]
-            resolved_count = 0
-            for hook_ref in s.resolved_hooks:
-                try:
-                    if not hook_ref or not isinstance(hook_ref, str):
-                        continue
-                    matched = False
-                    # 先尝试按 ID 匹配
-                    for hook in open_hooks:
-                        if hook.id == hook_ref:
-                            self.sm.resolve_hook(hook.id, chapter)
-                            matched = True
-                            resolved_count += 1
-                            log(f"伏笔ID回收：「{hook.description}」")
-                            break
-                    # 再尝试按描述匹配（写手输出的是伏笔描述）
-                    if not matched:
-                        for hook in open_hooks:
-                            if hook_ref.lower() in hook.description.lower() or hook.description.lower() in hook_ref.lower():
-                                self.sm.resolve_hook(hook.id, chapter)
-                                matched = True
-                                resolved_count += 1
-                                log(f"伏笔描述回收：「{hook.description}」")
-                                break
-                except Exception as e:
-                    log(f"伏笔回收处理失败：{e}")
-            if resolved_count > 0:
-                log(f"本章共回收 {resolved_count} 个伏笔")
-        except Exception as e:
-            log(f"伏笔回收模块初始化失败：{e}")
+        resolved_count = 0
+        for hook_ref in s.resolved_hooks:
+            if not hook_ref or not isinstance(hook_ref, str):
+                continue
+            for hook in ws.pending_hooks:
+                if hook.status == HookStatus.OPEN and (
+                    hook.id == hook_ref or 
+                    hook_ref.lower() in hook.description.lower() or 
+                    hook.description.lower() in hook_ref.lower()
+                ):
+                    hook.status = HookStatus.RESOLVED
+                    hook.resolved_in_chapter = chapter
+                    resolved_count += 1
+                    log(f"伏笔回收：「{hook.description}」")
+                    break
+        if resolved_count > 0:
+            log(f"本章共回收 {resolved_count} 个伏笔")
 
         # 7. 信息揭示（角色得知新信息）
         for info in s.info_revealed:
-            try:
-                if not isinstance(info, dict):
-                    continue
-                char_id = info.get("character_id", "")
-                info_key = info.get("info_key", "")
-                content = info.get("content", "")
-                if char_id and info_key:
-                    # 更新信息边界
-                    self.sm.learn_info(char_id, info_key, content, chapter, "witnessed")
-            except Exception as e:
-                log(f"信息揭示处理失败：{e}")
-                # 更新 character_matrix.md
+            if not isinstance(info, dict):
+                continue
+            char_id = info.get("character_id", "")
+            info_key = info.get("info_key", "")
+            content = info.get("content", "")
+            if char_id and info_key and not ws.character_knows(char_id, info_key):
+                ws.known_info.append(KnownInfoRecord(
+                    character_id=char_id,
+                    info_key=info_key,
+                    content=content,
+                    learned_in_chapter=chapter,
+                    source="witnessed",
+                ))
                 self.sm.append_truth(
                     TruthFileKey.CHARACTER_MATRIX,
                     f"\n- Ch.{chapter} [{char_id}] 得知：{info_key} — {content}\n",
@@ -903,6 +884,8 @@ class WritingPipeline:
                 TruthFileKey.CURRENT_STATE,
                 f"\n### Ch.{chapter} 资源变化\n{changes_str}\n",
             )
+
+        self.sm.write_world_state(ws)
 
 
 # ── 工具函数 ──────────────────────────────────────────────────────────────────

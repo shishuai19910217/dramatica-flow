@@ -60,14 +60,13 @@ def _require_key() -> str:
 
 
 def _llm(temperature: float | None = None, model_env: str = "DEEPSEEK_MODEL"):
-    from core.llm import LLMConfig, DeepSeekProvider
+    from core.llm import LLMConfig, DeepSeekProvider, OllamaProvider
     
     provider = os.environ.get("LLM_PROVIDER", "deepseek").lower()
     
     # 获取模型，处理空字符串情况（.env 中设置了变量但值为空）
-    # 优先读取当前 provider 的模型配置（如 CUSTOM_MODEL）
     model = os.environ.get(f"{provider.upper()}_MODEL", "")
-    if not model:  # 如果当前 provider 没有配置，使用指定的 model_env
+    if not model:
         model = os.environ.get(model_env, "")
         if not model:
             model = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
@@ -84,7 +83,11 @@ def _llm(temperature: float | None = None, model_env: str = "DEEPSEEK_MODEL"):
         temperature=temperature if temperature is not None
                     else float(os.environ.get("DEFAULT_TEMPERATURE", "0.7")),
     )
-    return DeepSeekProvider(cfg)
+    
+    if provider == "ollama":
+        return OllamaProvider(cfg)
+    else:
+        return DeepSeekProvider(cfg)
 
 
 # ── df init ───────────────────────────────────────────────────────────────────
@@ -328,6 +331,7 @@ def write(
         all_outlines = [ChapterOutlineSchema.model_validate(r) for r in raw]
         console.print(f"[dim]加载章纲：{len(all_outlines)} 章[/dim]")
 
+    console.print("[bold]初始化写作管线...[/bold]")
     pipeline = WritingPipeline(
         state_manager=sm,
         architect=ArchitectAgent(_llm()),
@@ -340,9 +344,12 @@ def write(
         protagonist=protagonist,
         all_characters=list(state.characters.values()),
     )
+    console.print("  ✓ 管线初始化完成")
 
+    console.print("[bold]读取世界状态...[/bold]")
     ws = sm.read_world_state()
     next_ch = ws.current_chapter + 1
+    console.print(f"  ✓ 当前章节：{ws.current_chapter}，下一章：{next_ch}")
 
     for i in range(count):
         ch_num = next_ch + i
