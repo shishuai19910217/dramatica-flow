@@ -462,7 +462,7 @@ class WritingPipeline:
         # 将写后结算表中的变化应用到世界状态
         log("应用结算表...")
         try:
-            self._apply_settlement(ch, writer_output, blueprint)
+            self._apply_settlement(ch, writer_output, blueprint, log)
         except Exception as e:
             log(f"应用结算表失败：{e}")
 
@@ -730,6 +730,7 @@ class WritingPipeline:
         chapter: int,
         writer_output: WriterOutput,
         blueprint: ArchitectBlueprint,
+        log_func=None,
     ) -> None:
         """
         应用写后结算表到世界状态
@@ -852,10 +853,11 @@ class WritingPipeline:
                     hook.status = HookStatus.RESOLVED
                     hook.resolved_in_chapter = chapter
                     resolved_count += 1
-                    log(f"伏笔回收：「{hook.description}」")
+                    if log_func:
+                        log_func(f"伏笔回收：「{hook.description}」")
                     break
-        if resolved_count > 0:
-            log(f"本章共回收 {resolved_count} 个伏笔")
+        if resolved_count > 0 and log_func:
+            log_func(f"本章共回收 {resolved_count} 个伏笔")
 
         # 7. 信息揭示（角色得知新信息）
         for info in s.info_revealed:
