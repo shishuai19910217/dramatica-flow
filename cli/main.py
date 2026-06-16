@@ -350,14 +350,21 @@ def write(
             console.print(f"[yellow]全部 {len(all_outlines)} 章已写完[/yellow]"); break
         co = all_outlines[ch_num - 1]
         console.print(f"\n[bold]第 {ch_num} 章《{co.title}》[/bold]")
-        result = pipeline.run(co, verbose=True)
-        ok = "[green]✓[/green]" if result.audit_report.passed else "[yellow]⚠[/yellow]"
-        console.print(
-            f"  {ok} 审计{'通过' if result.audit_report.passed else '未通过'}"
-            f"  修订 {result.revision_rounds} 轮"
-            f"  {len(result.content)} 字"
-            f"  因果链 {result.causal_links} 条"
-        )
+        try:
+            result = pipeline.run(co, verbose=True)
+            ok = "[green]✓[/green]" if result.audit_report.passed else "[yellow]⚠[/yellow]"
+            console.print(
+                f"  {ok} 审计{'通过' if result.audit_report.passed else '未通过'}"
+                f"  修订 {result.revision_rounds} 轮"
+                f"  {len(result.content)} 字"
+                f"  因果链 {result.causal_links} 条"
+            )
+        except Exception as e:
+            console.print(f"[red]✗[/red] 写作失败：{e}")
+            import traceback
+            console.print(f"[red]详细错误：[/red]{traceback.format_exc()}")
+            # 继续尝试写下一章，不中断整体流程
+            continue
 
 
 # ── df audit ──────────────────────────────────────────────────────────────────

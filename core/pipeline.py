@@ -459,33 +459,47 @@ class WritingPipeline:
         # ── 步骤12: 应用结算表到世界状态 ───────────────────────────────────────
         # 将写后结算表中的变化应用到世界状态
         log("应用结算表...")
-        self._apply_settlement(ch, writer_output, blueprint)
+        try:
+            self._apply_settlement(ch, writer_output, blueprint)
+        except Exception as e:
+            log(f"应用结算表失败：{e}")
 
         # ── 步骤13: 记录时间轴事件 + 更新线程状态 ─────────────────────────────
         log("更新时间轴和线程状态...")
-        self._record_timeline_events(ch, writer_output, blueprint, thread_id, ws)
+        try:
+            self._record_timeline_events(ch, writer_output, blueprint, thread_id, ws)
+        except Exception as e:
+            log(f"记录时间轴事件失败：{e}")
 
         # ── 步骤14: 更新当前章节 + current_state.md ───────────────────────────
         # 刷新世界状态并更新状态文档
-        ws = self.sm.read_world_state()
-        ws.current_chapter = ch
-        self.sm.write_world_state(ws)
-        self.sm.update_current_state_md()
-        log("current_state.md 已更新")
+        log("更新当前章节和状态文档...")
+        try:
+            ws = self.sm.read_world_state()
+            ws.current_chapter = ch
+            self.sm.write_world_state(ws)
+            self.sm.update_current_state_md()
+            log("current_state.md 已更新")
+        except Exception as e:
+            log(f"更新当前章节失败：{e}")
 
         # ── 步骤15: 更新线程状态 + 掉线预警 ───────────────────────────────────
         # 检测超过阈值章节未活跃的支线线程并告警
         dormancy_warnings: list[str] = []
-        if ws.threads:
-            self.sm.update_thread_status_md()
-            # 检测阈值为5章未活跃的线程
-            dormant = ws.dormant_threads(ch, threshold=5)
-            for t in dormant:
-                gap = ch - t.last_active_chapter
-                dormancy_warnings.append(f"{t.name}（{t.id}）：已 {gap} 章未活跃")
-            if dormancy_warnings and verbose:
-                for w in dormancy_warnings:
-                    print(f"  [预警] 支线掉线：{w}")
+        try:
+            ws = self.sm.read_world_state()
+            if ws.threads:
+                self.sm.update_thread_status_md()
+                # 检测阈值为5章未活跃的线程
+                dormant = ws.dormant_threads(ch, threshold=5)
+                for t in dormant:
+                    gap = ch - t.last_active_chapter
+                    dormancy_warnings.append(f"{t.name}（{t.id}）：已 {gap} 章未活跃")
+                if dormancy_warnings and verbose:
+                    for w in dormancy_warnings:
+                        print(f"  [预警] 支线掉线：{w}")
+        except Exception as e:
+            log(f"掉线预警检测失败：{e}")
 
         # 返回管线执行结果
         return PipelineResult(
@@ -622,68 +636,90 @@ class WritingPipeline:
 
         # 1. 从角色位置变化中提取时间轴事件
         for change in writer_output.settlement.character_position_changes:
-            char_id = change.get("character_id", "")
-            loc_id = change.get("location_id", "")
-            if char_id and loc_id:
-                event = TimelineEvent(
-                    id=f"te_{uuid.uuid4().hex[:8]}",
-                    chapter=chapter,
-                    physical_time="",
-                    time_order=_next_order(),
-                    character_id=char_id,
-                    location_id=loc_id,
-                    action=f"移动到 {loc_id}",
-                    thread_id=thread_id,
-                )
-                self.sm.add_timeline_event(event)
+            try:
+                if not isinstance(change, dict):
+                    continue
+                char_id = change.get("character_id", "")
+                loc_id = change.get("location_id", "")
+                if char_id and loc_id:
+                    event = TimelineEvent(
+                        id=f"te_{uuid.uuid4().hex[:8]}",
+                        chapter=chapter,
+                        physical_time="",
+                        time_order=_next_order(),
+                        character_id=char_id,
+                        location_id=loc_id,
+                        action=f"移动到 {loc_id}",
+                        thread_id=thread_id,
+                    )
+                    self.sm.add_timeline_event(event)
+            except Exception as e:
+                log(f"时间轴事件-位置变化处理失败：{e}")
 
         # 2. 从情感变化中提取关键情感转折事件（仅记录强度>=7的）
         for ec in writer_output.settlement.emotional_changes:
-            char_id = ec.get("character_id", "")
-            intensity = int(ec.get("intensity", 0))
-            emotion = ec.get("emotion", "")
-            trigger = ec.get("trigger", "")
-            if char_id and intensity >= 7:  # 高强度情感变化才记录
-                event = TimelineEvent(
-                    id=f"te_{uuid.uuid4().hex[:8]}",
-                    chapter=chapter,
-                    physical_time="",
-                    time_order=_next_order(),
-                    character_id=char_id,
-                    action=f"情感转折：{emotion}（强度{intensity}/10），触发：{trigger[:30]}",
-                    thread_id=thread_id,
-                )
-                self.sm.add_timeline_event(event)
+            try:
+                if not isinstance(ec, dict):
+                    continue
+                char_id = ec.get("character_id", "")
+                intensity_val = ec.get("intensity", 0)
+                try:
+                    intensity = int(intensity_val)
+                except (ValueError, TypeError):
+                    intensity = 0
+                emotion = ec.get("emotion", "")
+                trigger = ec.get("trigger", "")
+                if char_id and intensity >= 7:  # 高强度情感变化才记录
+                    event = TimelineEvent(
+                        id=f"te_{uuid.uuid4().hex[:8]}",
+                        chapter=chapter,
+                        physical_time="",
+                        time_order=_next_order(),
+                        character_id=char_id,
+                        action=f"情感转折：{emotion}（强度{intensity}/10），触发：{trigger[:30]}",
+                        thread_id=thread_id,
+                    )
+                    self.sm.add_timeline_event(event)
+            except Exception as e:
+                log(f"时间轴事件-情感变化处理失败：{e}")
 
         # 3. 从信息揭示中提取事件
         for info in writer_output.settlement.info_revealed:
-            char_id = info.get("character_id", "")
-            info_key = info.get("info_key", "")
-            if char_id and info_key:
+            try:
+                if not isinstance(info, dict):
+                    continue
+                char_id = info.get("character_id", "")
+                info_key = info.get("info_key", "")
+                if char_id and info_key:
+                    event = TimelineEvent(
+                        id=f"te_{uuid.uuid4().hex[:8]}",
+                        chapter=chapter,
+                        physical_time="",
+                        time_order=_next_order(),
+                        character_id=char_id,
+                        action=f"得知：{info_key}",
+                        thread_id=thread_id,
+                    )
+                    self.sm.add_timeline_event(event)
+            except Exception as e:
+                log(f"时间轴事件-信息揭示处理失败：{e}")
+
+        # 4. 从核心冲突中提取主线事件
+        try:
+            if blueprint.core_conflict:
+                pov_id = blueprint.pov_character_id or self.protagonist.id
                 event = TimelineEvent(
                     id=f"te_{uuid.uuid4().hex[:8]}",
                     chapter=chapter,
                     physical_time="",
                     time_order=_next_order(),
-                    character_id=char_id,
-                    action=f"得知：{info_key}",
+                    character_id=pov_id,
+                    action=blueprint.core_conflict[:60],  # 截断到60字
                     thread_id=thread_id,
                 )
                 self.sm.add_timeline_event(event)
-
-        # 4. 从核心冲突中提取主线事件
-        if blueprint.core_conflict:
-            pov_id = blueprint.pov_character_id or self.protagonist.id
-            event = TimelineEvent(
-                id=f"te_{uuid.uuid4().hex[:8]}",
-                chapter=chapter,
-                physical_time="",
-                time_order=_next_order(),
-                character_id=pov_id,
-                action=blueprint.core_conflict[:60],  # 截断到60字
-                thread_id=thread_id,
-            )
-            self.sm.add_timeline_event(event)
+        except Exception as e:
+            log(f"时间轴事件-核心冲突处理失败：{e}")
 
     # ── 结算表应用 ────────────────────────────────────────────────────────────
 
@@ -708,30 +744,45 @@ class WritingPipeline:
 
         # 1. 角色位置变化
         for change in s.character_position_changes:
-            char_id = change.get("character_id", "")
-            loc_id = change.get("location_id", "")
-            if char_id and loc_id:
-                self.sm.move_character(char_id, loc_id)
+            try:
+                if not isinstance(change, dict):
+                    continue
+                char_id = change.get("character_id", "")
+                loc_id = change.get("location_id", "")
+                if char_id and loc_id:
+                    self.sm.move_character(char_id, loc_id)
+            except Exception as e:
+                log(f"角色位置变化处理失败：{e}")
 
         # 2. 情感变化
         for ec in s.emotional_changes:
-            char_id = ec.get("character_id", "")
-            if not char_id:
-                continue
-            # 创建情感快照
-            snap = EmotionalSnapshot(
-                character_id=char_id,
-                emotion=ec.get("emotion", "未知"),
-                intensity=int(ec.get("intensity", 5)),
-                chapter=chapter,
-                trigger=ec.get("trigger", ""),
-            )
-            self.sm.record_emotion(snap)
-            # 更新 emotional_arcs.md
-            self.sm.append_truth(
-                TruthFileKey.EMOTIONAL_ARCS,
-                f"- Ch.{chapter} [{char_id}] {snap.emotion}（{snap.intensity}/10）：{snap.trigger}\n",
-            )
+            try:
+                if not isinstance(ec, dict):
+                    continue
+                char_id = ec.get("character_id", "")
+                if not char_id:
+                    continue
+                # 创建情感快照（安全处理 intensity）
+                intensity_val = ec.get("intensity", 5)
+                try:
+                    intensity = int(intensity_val)
+                except (ValueError, TypeError):
+                    intensity = 5
+                snap = EmotionalSnapshot(
+                    character_id=char_id,
+                    emotion=ec.get("emotion", "未知"),
+                    intensity=intensity,
+                    chapter=chapter,
+                    trigger=ec.get("trigger", ""),
+                )
+                self.sm.record_emotion(snap)
+                # 更新 emotional_arcs.md
+                self.sm.append_truth(
+                    TruthFileKey.EMOTIONAL_ARCS,
+                    f"- Ch.{chapter} [{char_id}] {snap.emotion}（{snap.intensity}/10）：{snap.trigger}\n",
+                )
+            except Exception as e:
+                log(f"情感变化处理失败：{e}")
 
         # 3. 关系变化（格式：「角色A-角色B：delta，原因」）
         # 示例："林尘-慕雪：+20，慕雪开始动摇"
@@ -752,24 +803,33 @@ class WritingPipeline:
                         reason = re.sub(r'[+-]\d+[，,]?\s*', '', detail).strip()
                         # 更新关系
                         self.sm.update_relationship(char_a, char_b, delta, chapter, reason)
-            except Exception:
-                pass  # 关系变化解析失败静默跳过
+            except Exception as e:
+                log(f"关系变化处理失败：{e}")
 
         # 4. 新开伏笔（来自写手结算表）
         for hook_desc in s.new_hooks:
-            hook = Hook(
-                id=f"hook_{uuid.uuid4().hex[:8]}",
-                type=HookType.FORESHADOW,
-                description=hook_desc,
-                planted_in_chapter=chapter,
-                expected_resolution_range=(chapter + 3, chapter + 25),  # 预期回收范围
-                status=HookStatus.OPEN,
-            )
-            self.sm.open_hook(hook)
+            try:
+                if not hook_desc or not isinstance(hook_desc, str):
+                    continue
+                hook = Hook(
+                    id=f"hook_{uuid.uuid4().hex[:8]}",
+                    type=HookType.FORESHADOW,
+                    description=hook_desc,
+                    planted_in_chapter=chapter,
+                    expected_resolution_range=(chapter + 3, chapter + 25),  # 预期回收范围
+                    status=HookStatus.OPEN,
+                )
+                self.sm.open_hook(hook)
+            except Exception as e:
+                log(f"新开伏笔处理失败：{e}")
 
         # 5. 建筑师计划埋下的伏笔（来自蓝图）
         for hook_desc in blueprint.hooks_to_plant:
-            if hook_desc and hook_desc not in s.new_hooks:  # 避免重复
+            try:
+                if not hook_desc or not isinstance(hook_desc, str):
+                    continue
+                if hook_desc in s.new_hooks:  # 避免重复
+                    continue
                 hook = Hook(
                     id=f"hook_{uuid.uuid4().hex[:8]}",
                     type=HookType.FORESHADOW,
@@ -779,42 +839,57 @@ class WritingPipeline:
                     status=HookStatus.OPEN,
                 )
                 self.sm.open_hook(hook)
+            except Exception as e:
+                log(f"蓝图伏笔处理失败：{e}")
 
         # 6. 回收伏笔（标记为已解决）
         # 支持通过描述匹配伏笔（写手输出的是描述而不是 ID）
-        ws = self.sm.read_world_state()
-        open_hooks = [h for h in ws.pending_hooks if h.status == HookStatus.OPEN]
-        resolved_count = 0
-        for hook_ref in s.resolved_hooks:
-            matched = False
-            # 先尝试按 ID 匹配
-            for hook in open_hooks:
-                if hook.id == hook_ref:
-                    self.sm.resolve_hook(hook.id, chapter)
-                    matched = True
-                    resolved_count += 1
-                    log(f"伏笔ID回收：「{hook.description}」")
-                    break
-            # 再尝试按描述匹配（写手输出的是伏笔描述）
-            if not matched:
-                for hook in open_hooks:
-                    if hook_ref.lower() in hook.description.lower() or hook.description.lower() in hook_ref.lower():
-                        self.sm.resolve_hook(hook.id, chapter)
-                        matched = True
-                        resolved_count += 1
-                        log(f"伏笔描述回收：「{hook.description}」")
-                        break
-        if resolved_count > 0:
-            log(f"本章共回收 {resolved_count} 个伏笔")
+        try:
+            ws = self.sm.read_world_state()
+            open_hooks = [h for h in ws.pending_hooks if h.status == HookStatus.OPEN]
+            resolved_count = 0
+            for hook_ref in s.resolved_hooks:
+                try:
+                    if not hook_ref or not isinstance(hook_ref, str):
+                        continue
+                    matched = False
+                    # 先尝试按 ID 匹配
+                    for hook in open_hooks:
+                        if hook.id == hook_ref:
+                            self.sm.resolve_hook(hook.id, chapter)
+                            matched = True
+                            resolved_count += 1
+                            log(f"伏笔ID回收：「{hook.description}」")
+                            break
+                    # 再尝试按描述匹配（写手输出的是伏笔描述）
+                    if not matched:
+                        for hook in open_hooks:
+                            if hook_ref.lower() in hook.description.lower() or hook.description.lower() in hook_ref.lower():
+                                self.sm.resolve_hook(hook.id, chapter)
+                                matched = True
+                                resolved_count += 1
+                                log(f"伏笔描述回收：「{hook.description}」")
+                                break
+                except Exception as e:
+                    log(f"伏笔回收处理失败：{e}")
+            if resolved_count > 0:
+                log(f"本章共回收 {resolved_count} 个伏笔")
+        except Exception as e:
+            log(f"伏笔回收模块初始化失败：{e}")
 
         # 7. 信息揭示（角色得知新信息）
         for info in s.info_revealed:
-            char_id = info.get("character_id", "")
-            info_key = info.get("info_key", "")
-            content = info.get("content", "")
-            if char_id and info_key:
-                # 更新信息边界
-                self.sm.learn_info(char_id, info_key, content, chapter, "witnessed")
+            try:
+                if not isinstance(info, dict):
+                    continue
+                char_id = info.get("character_id", "")
+                info_key = info.get("info_key", "")
+                content = info.get("content", "")
+                if char_id and info_key:
+                    # 更新信息边界
+                    self.sm.learn_info(char_id, info_key, content, chapter, "witnessed")
+            except Exception as e:
+                log(f"信息揭示处理失败：{e}")
                 # 更新 character_matrix.md
                 self.sm.append_truth(
                     TruthFileKey.CHARACTER_MATRIX,
