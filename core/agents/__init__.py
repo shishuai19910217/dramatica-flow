@@ -106,6 +106,7 @@ class ArchitectAgent:
         prior_chapter_summary: str = "",
         pov_character: Character | None = None,
         thread_context: str = "",
+        rewrite_reason: str = "",  # 新增：重写原因
     ) -> ArchitectBlueprint:
 
         prior_ctx = f"\n## 上章摘要\n{prior_chapter_summary}" if prior_chapter_summary else ""
@@ -134,6 +135,19 @@ class ArchitectAgent:
 > 注意：确保本章事件与其他线程的时间线不冲突。
 """
 
+        # ── 重写指导（如果提供了重写原因） ──
+        rewrite_section = ""
+        if rewrite_reason.strip():
+            rewrite_section = f"""
+## 重写指导（重要）
+本章需要重写，原因：{rewrite_reason}
+请根据此原因调整本章的：
+- 核心冲突设计：确保冲突更加合理、有张力
+- 情节走向：修正原有问题，保持逻辑连贯
+- 角色行为：确保角色动机和行为一致
+> 重写后的内容必须解决原有问题，同时保持与前后章节的连贯性。
+"""
+
         prompt = f"""\
 你是精通戏剧结构的故事建筑师，为写手规划本章写作蓝图。
 
@@ -145,7 +159,7 @@ class ArchitectAgent:
 - 字数目标：{chapter_outline.target_words} 字
 - 节拍序列：{' → '.join(b.description for b in chapter_outline.beats)}
 {prior_ctx}
-{pov_section}{thread_section}
+{pov_section}{thread_section}{rewrite_section}
 ## 当前世界状态
 {world_context}
 

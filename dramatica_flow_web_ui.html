@@ -385,6 +385,29 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft Ya
   </div>
 </div>
 
+<!-- ── 弹窗：重写章节 ─────────────────────────────────────────────────────── -->
+<div class="modal-overlay" id="modal-rewrite" style="display:none" onclick="if(event.target===this)this.style.display='none'">
+  <div class="modal" style="max-width:500px">
+    <h3 id="modal-rewrite-title">重写章节</h3>
+    <div class="form-group">
+      <label class="form-label">重写原因（可选，帮助AI理解需要改进的方向）</label>
+      <textarea class="form-textarea" id="rewrite-reason" placeholder="例如：剧情逻辑不合理、角色行为矛盾、节奏太慢..."></textarea>
+    </div>
+    <div class="form-group">
+      <label class="form-label">重写模式</label>
+      <select class="form-select" id="rewrite-mode">
+        <option value="single">仅重写本章</option>
+        <option value="cascade">连锁重写（重写本章及后续所有章节）</option>
+      </select>
+      <div class="form-hint">连锁重写会删除后续章节并重新生成，确保整体一致性</div>
+    </div>
+    <div style="margin-top:16px;display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn" onclick="document.getElementById('modal-rewrite').style.display='none'">取消</button>
+      <button class="btn btn-warning" id="rewrite-btn" onclick="doRewrite()">确认重写</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── 弹窗：进度展示 ─────────────────────────────────────────────────────── -->
 <div class="modal-overlay" id="modal-progress" style="display:none">
   <div class="modal" style="max-width:560px">
@@ -2976,10 +2999,18 @@ function renderChapters() {
   const finals = chapters.filter(c => c.kind === 'final');
   const drafts = chapters.filter(c => c.kind === 'draft');
   let html = `<div class="section-label">最终稿 (${finals.length})</div><div class="chapter-grid">` +
-    finals.map(c => `<div class="ch-card final" onclick="viewChapter(${c.number})"><div style="font-size:11px;color:var(--text3)">第${c.number}章</div><div style="font-size:11px;color:var(--text3);margin-top:3px">${c.chars||0}字</div></div>`).join('') + '</div>';
+    finals.map(c => `<div class="ch-card final" onclick="viewChapter(${c.number})">
+      <div style="font-size:11px;color:var(--text3)">第${c.number}章</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:3px">${c.chars||0}字</div>
+      <button class="btn btn-sm btn-warning" style="margin-top:4px;width:100%" onclick="event.stopPropagation();showRewriteModal(${c.number})">重写</button>
+    </div>`).join('') + '</div>';
   if (drafts.length) {
     html += `<div class="section-label" style="margin-top:14px">草稿 (${drafts.length})</div><div class="chapter-grid">` +
-      drafts.map(c => `<div class="ch-card draft" onclick="viewChapter(${c.number})"><div style="font-size:11px;color:var(--text3)">第${c.number}章</div><div style="font-size:11px;color:var(--text3);margin-top:3px">${c.chars||0}字</div></div>`).join('') + '</div>';
+      drafts.map(c => `<div class="ch-card draft" onclick="viewChapter(${c.number})">
+        <div style="font-size:11px;color:var(--text3)">第${c.number}章</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:3px">${c.chars||0}字</div>
+        <button class="btn btn-sm btn-warning" style="margin-top:4px;width:100%" onclick="event.stopPropagation();showRewriteModal(${c.number})">重写</button>
+      </div>`).join('') + '</div>';
   }
   return html;
 }
@@ -2989,6 +3020,85 @@ async function viewChapter(ch) {
   document.getElementById('modal-chapter-title').textContent = `第${ch}章（${data.kind==='final'?'最终稿':'草稿'}，${data.chars}字）`;
   document.getElementById('modal-chapter-content').textContent = data.content;
   document.getElementById('modal-chapter').style.display = 'flex';
+}
+
+// ── 重写章节功能 ──────────────────────────────────────────────────────────
+
+let rewriteChapterNumber = null;
+
+async function showRewriteModal(ch) {
+  // 先检查是否可以重写
+  try {
+    const check = await api(`/books/${currentBook.id}/can-rewrite/${ch}`);
+    if (!check.can_rewrite) {
+      if (!check.has_snapshot) {
+        toast(`无法重写：第 ${ch - 1} 章的快照不存在`, false);
+      } else if (!check.has_outline) {
+        toast('无法重写：章节大纲不存在', false);
+      }
+      return;
+    }
+  } catch (e) {
+    toast('检查重写条件失败: ' + e.message, false);
+    return;
+  }
+  
+  rewriteChapterNumber = ch;
+  document.getElementById('modal-rewrite-title').textContent = `重写第 ${ch} 章`;
+  document.getElementById('rewrite-reason').value = '';
+  document.getElementById('rewrite-mode').value = 'single';
+  document.getElementById('modal-rewrite').style.display = 'flex';
+}
+
+async function doRewrite() {
+  if (!rewriteChapterNumber || !currentBook) return;
+  
+  const reason = document.getElementById('rewrite-reason').value.trim();
+  const cascade = document.getElementById('rewrite-mode').value === 'cascade';
+  
+  // 关闭弹窗，显示进度
+  document.getElementById('modal-rewrite').style.display = 'none';
+  openWriteProgressModal();
+  
+  // 更新进度标题
+  document.getElementById('progress-title').textContent = `AI 正在重写第 ${rewriteChapterNumber} 章`;
+  document.getElementById('progress-message').textContent = cascade ? '连锁重写模式：将重写后续所有章节' : '单章重写模式';
+  
+  try {
+    const res = await fetch(`/api/books/${currentBook.id}/rewrite-chapter`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chapter: rewriteChapterNumber,
+        reason: reason,
+        cascade: cascade
+      })
+    });
+    
+    const data = await res.json();
+    
+    if (data.ok) {
+      toast(`第 ${data.chapter} 章重写完成，${data.word_count} 字`, true);
+      if (cascade && data.cascade) {
+        toast('后续章节也已重新生成', true);
+      }
+      // 刷新数据
+      await loadBookData();
+      loadStep5();
+    } else {
+      toast(data.detail || '重写失败', false);
+    }
+  } catch (e) {
+    toast('重写失败: ' + e.message, false);
+  } finally {
+    closeWriteProgressModal();
+    rewriteChapterNumber = null;
+  }
+}
+
+function closeWriteProgressModal() {
+  const modal = document.getElementById('modal-progress');
+  if (modal) modal.style.display = 'none';
 }
 
 // SSE事件源变量

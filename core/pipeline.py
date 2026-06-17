@@ -519,6 +519,328 @@ class WritingPipeline:
             quality_report=quality_report,
         )
 
+    # ── 章节重写 ────────────────────────────────────────────────────────────────
+
+    def rewrite_chapter(
+        self,
+        chapter_outline: ChapterOutlineSchema,
+        rewrite_reason: str = "",
+        verbose: bool = False,
+    ) -> PipelineResult:
+        """
+        重写指定章节
+        
+        与正常写作的区别：
+        1. 先删除旧记录和文件
+        2. 不创建新快照（使用已有的）
+        3. 可传入重写原因作为额外指导
+        
+        Args:
+            chapter_outline: 章纲 Schema
+            rewrite_reason: 重写原因（可选，用于提示词）
+            verbose: 是否输出详细日志
+        
+        Returns:
+            PipelineResult: 管线执行结果
+        """
+        ch = chapter_outline.chapter_number
+        title = chapter_outline.title
+
+        def log(msg: str) -> None:
+            if verbose:
+                print(f"  [{ch}] {msg}")
+
+        # ── 步骤1: 删除旧记录 ─────────────────────────────────────────────────
+        log("删除旧记录...")
+        self.sm.delete_chapter_records(ch)
+
+        # ── 步骤2: 删除旧文件 ──────────────────────────────────────────────────
+        log("删除旧文件...")
+        draft_path = self.sm.chapter_dir / f"ch{ch:04d}_draft.md"
+        final_path = self.sm.chapter_dir / f"ch{ch:04d}_final.md"
+        if draft_path.exists():
+            draft_path.unlink()
+        if final_path.exists():
+            final_path.unlink()
+
+        # ── 步骤3: 读取上下文（与 run 相同）────────────────────────────────────
+        log("读取上下文...")
+        world_context = self.sm.read_truth_bundle([
+            TruthFileKey.CURRENT_STATE,
+            TruthFileKey.CHARACTER_MATRIX,
+        ])
+        pending_hooks = self.sm.read_truth(TruthFileKey.PENDING_HOOKS)
+        causal_chain = self.sm.read_truth(TruthFileKey.CAUSAL_CHAIN)
+        emotional_arcs = self.sm.read_truth(TruthFileKey.EMOTIONAL_ARCS)
+        full_summaries = self.sm.read_truth(TruthFileKey.CHAPTER_SUMMARIES)
+        prior_summaries = _extract_recent_summaries(full_summaries, n=3)
+
+        ws = self.sm.read_world_state()
+        thread_id = getattr(chapter_outline, "thread_id", "thread_main") or "thread_main"
+        pov_char_id = getattr(chapter_outline, "pov_character_id", "") or ""
+
+        pov_character: Optional[Character] = None
+        if pov_char_id:
+            for c in self.all_characters:
+                if c.id == pov_char_id:
+                    pov_character = c
+                    break
+        if not pov_character and thread_id:
+            thread = ws.get_thread(thread_id)
+            if thread and thread.pov_character_id:
+                for c in self.all_characters:
+                    if c.id == thread.pov_character_id:
+                        pov_character = c
+                        break
+
+        thread_context = self._build_thread_context(ws, thread_id, ch)
+        effective_thread = ws.get_thread(thread_id) if thread_id else None
+        thread_weight = effective_thread.weight if effective_thread else 1.0
+        adjusted_target_words = max(
+            int(chapter_outline.target_words * thread_weight),
+            int(chapter_outline.target_words * 0.5),
+        )
+
+        # ── 步骤4: 建筑师规划（传入重写原因）───────────────────────────────────
+        log("建筑师规划...")
+        blueprint = self.architect.plan_chapter(
+            chapter_outline=chapter_outline,
+            world_context=world_context,
+            pending_hooks=pending_hooks,
+            prior_chapter_summary=prior_summaries,
+            pov_character=pov_character,
+            thread_context=thread_context,
+            rewrite_reason=rewrite_reason,  # 传入重写原因
+        )
+
+        # ── 步骤5-15: 与 run 相同 ───────────────────────────────────────────────
+        # 写手写章
+        log("写手写章...")
+        scene_summaries = _format_beats(chapter_outline)
+        prev_chapter_tail = ""
+        if ch > 1:
+            prev_final = self.sm.read_final(ch - 1) or self.sm.read_draft(ch - 1)
+            if prev_final:
+                prev_chapter_tail = prev_final[-800:]
+        writer_output = self.writer.write_chapter(
+            scene_summaries=scene_summaries,
+            blueprint=blueprint,
+            protagonist=self.protagonist,
+            world_context=world_context,
+            chapter_number=ch,
+            target_words=adjusted_target_words,
+            prior_summaries=prior_summaries,
+            prev_chapter_tail=prev_chapter_tail,
+            chapter_title=title,
+            pov_character=pov_character,
+            thread_context=thread_context,
+            pending_hooks=pending_hooks,
+            causal_chain=causal_chain,
+            emotional_arcs=emotional_arcs,
+            writing_notes=chapter_outline.writing_notes,
+            pov_instruction=chapter_outline.pov,
+        )
+        self.sm.save_draft(ch, writer_output.content)
+        log(f"草稿 {len(writer_output.content)} 字")
+
+        # 写后验证
+        log("写后验证...")
+        val_result = self.validator.validate(
+            writer_output.content,
+            target_words=adjusted_target_words,
+        )
+        current_content = writer_output.content
+
+        if not val_result.passed:
+            error_issues = [
+                AuditIssue(
+                    dimension="写后验证",
+                    severity="critical",
+                    description=i.description,
+                    location=i.excerpt,
+                )
+                for i in val_result.issues
+                if i.severity == "error"
+            ]
+            log(f"验证未通过（{len(error_issues)} 个 error），spot-fix...")
+            fix_result = self.reviser.revise(
+                current_content,
+                error_issues,
+                mode="spot-fix",
+                target_words=adjusted_target_words,
+            )
+            current_content = fix_result.content
+
+        # 审计修订闭环
+        log("审计员审计...")
+        audit_truth_ctx = self.sm.read_truth_bundle([
+            TruthFileKey.CURRENT_STATE,
+            TruthFileKey.CHARACTER_MATRIX,
+            TruthFileKey.PENDING_HOOKS,
+            TruthFileKey.EMOTIONAL_ARCS,
+            TruthFileKey.CAUSAL_CHAIN,
+        ])
+        cross_thread_audit_ctx = self._build_cross_thread_audit_context(ws, thread_id, ch)
+
+        audit_report = self.auditor.audit_chapter(
+            chapter_content=current_content,
+            chapter_number=ch,
+            blueprint=blueprint,
+            truth_context=audit_truth_ctx,
+            settlement=writer_output.settlement,
+            cross_thread_context=cross_thread_audit_ctx,
+        )
+
+        revision_rounds = 0
+        while not audit_report.passed and revision_rounds < self.MAX_REVISE_ROUNDS:
+            log(f"修订第 {revision_rounds + 1} 轮...")
+            revise_result = self.reviser.revise(
+                current_content,
+                audit_report.issues,
+                mode="spot-fix",
+                target_words=adjusted_target_words,
+            )
+            current_content = revise_result.content
+            revision_rounds += 1
+            audit_report = self.auditor.audit_chapter(
+                chapter_content=current_content,
+                chapter_number=ch,
+                blueprint=blueprint,
+                truth_context=audit_truth_ctx,
+                settlement=writer_output.settlement,
+                cross_thread_context=cross_thread_audit_ctx,
+            )
+
+        # 质量评估
+        quality_report: Optional[QualityReport] = None
+        quality_score: Optional[int] = None
+        if self.quality_agent:
+            log("质量评估...")
+            prev_content = ""
+            if ch > 1:
+                prev_content = self.sm.read_draft(ch - 1) or ""
+            genre = getattr(ws.settings, "genre", "general")
+            current_content, quality_report = self.quality_agent.evaluate_chapter(
+                chapter_content=current_content,
+                chapter_number=ch,
+                genre=genre,
+                blueprint=blueprint,
+                truth_context=audit_truth_ctx,
+                settlement=writer_output.settlement,
+                prev_chapter_content=prev_content,
+                cross_thread_context=cross_thread_audit_ctx,
+                audit_report=audit_report,
+                auto_revise=True,
+                target_words=adjusted_target_words,
+            )
+            quality_score = quality_report.overall_score
+            log(f"质量评分：{quality_score}")
+
+        # 因果链提取
+        log("提取因果链...")
+        causal_schemas = self.engine.extract_causal_links(
+            chapter_content=current_content,
+            chapter_number=ch,
+            characters=self.all_characters,
+        )
+        for link_schema in causal_schemas:
+            cl = CausalLink(
+                id=link_schema.id,
+                chapter=link_schema.chapter,
+                cause=link_schema.cause,
+                event=link_schema.event,
+                consequence=link_schema.consequence,
+                affected_decisions=[
+                    AffectedDecision(d.character_id, d.decision)
+                    for d in link_schema.affected_decisions
+                ],
+                triggered_events=link_schema.triggered_events,
+                thread_id=thread_id,
+            )
+            self.sm.add_causal_link(cl)
+        log(f"因果链：{len(causal_schemas)} 条")
+
+        # 摘要生成
+        log("生成章节摘要...")
+        import re
+        try:
+            summary = self.summary_agent.generate_summary(
+                chapter_content=current_content,
+                chapter_number=ch,
+                chapter_title=title,
+                settlement=writer_output.settlement,
+            )
+            summary_md = self.summary_agent.format_for_truth_file(summary)
+        except Exception as e:
+            summary_md = (
+                f"\n## 第 {ch} 章《{title}》\n"
+                f"{chapter_outline.summary}\n"
+                f"- 审计：{'通过' if audit_report.passed else '未通过'}"
+                f"，修订 {revision_rounds} 轮\n---\n"
+            )
+            log(f"摘要生成失败（{e}），使用 fallback")
+
+        full_summaries = self.sm.read_truth(TruthFileKey.CHAPTER_SUMMARIES) or ""
+        chapter_pattern = rf"\n## 第 {ch} 章.*?(?=\n## 第|$)"
+        if re.search(chapter_pattern, full_summaries, re.DOTALL):
+            full_summaries = re.sub(chapter_pattern, summary_md, full_summaries, flags=re.DOTALL)
+        else:
+            full_summaries = f"{full_summaries}{summary_md}"
+        self.sm.write_truth(TruthFileKey.CHAPTER_SUMMARIES, full_summaries.strip())
+
+        # 保存最终稿
+        self.sm.save_final(ch, current_content)
+        log(f"最终稿保存（{len(current_content)} 字）")
+
+        # 应用结算表
+        log("应用结算表...")
+        try:
+            self._apply_settlement(ch, writer_output, blueprint, log)
+        except Exception as e:
+            log(f"应用结算表失败：{e}")
+
+        # 记录时间轴事件
+        log("更新时间轴和线程状态...")
+        try:
+            self._record_timeline_events(ch, writer_output, blueprint, thread_id, ws)
+        except Exception as e:
+            log(f"记录时间轴事件失败：{e}")
+
+        # 更新当前章节
+        log("更新当前章节和状态文档...")
+        try:
+            ws = self.sm.read_world_state()
+            ws.current_chapter = ch
+            self.sm.write_world_state(ws)
+            self.sm.update_current_state_md()
+            log("current_state.md 已更新")
+        except Exception as e:
+            log(f"更新当前章节失败：{e}")
+
+        # 掉线预警
+        dormancy_warnings: list[str] = []
+        try:
+            ws = self.sm.read_world_state()
+            if ws.threads:
+                self.sm.update_thread_status_md()
+        except Exception as e:
+            log(f"掉线预警检测失败：{e}")
+
+        return PipelineResult(
+            chapter_number=ch,
+            content=current_content,
+            audit_report=audit_report,
+            validation_passed=val_result.passed,
+            revision_rounds=revision_rounds,
+            causal_links=len(causal_schemas),
+            word_count=len(current_content),
+            thread_id=thread_id,
+            pov_character_id=pov_character.id if pov_character else "",
+            dormancy_warnings=dormancy_warnings,
+            quality_score=quality_score,
+            quality_report=quality_report,
+        )
+
     # ── 多线程辅助方法 ────────────────────────────────────────────────────────
 
     def _build_thread_context(

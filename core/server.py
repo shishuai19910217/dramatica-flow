@@ -4559,6 +4559,153 @@ def action_write(book_id: str, count: int = 1):
         return {"ok": False, "stdout": "", "stderr": f"执行出错：{str(e)}"}
 
 
+# ── 重写章节 API ──────────────────────────────────────────────────────────────
+
+from pydantic import BaseModel
+
+class RewriteChapterReq(BaseModel):
+    """重写章节请求"""
+    chapter: int
+    reason: str = ""
+    cascade: bool = False  # 是否连锁重写后续章节
+
+
+@app.post("/api/books/{book_id}/rewrite-chapter")
+def rewrite_chapter(book_id: str, req: RewriteChapterReq):
+    """
+    重写指定章节
+    
+    Args:
+        book_id: 书籍ID
+        req.chapter: 要重写的章节号
+        req.reason: 重写原因（可选）
+        req.cascade: 是否连锁重写后续章节
+    """
+    from dotenv import load_dotenv
+    load_dotenv(ENV_PATH, override=True)
+    
+    sm = _sm(book_id)
+    
+    # 1. 检查快照是否存在
+    if not sm.has_snapshot(req.chapter - 1):
+        raise HTTPException(400, f"第 {req.chapter - 1} 章的快照不存在，无法重写第 {req.chapter} 章")
+    
+    # 2. 检查章节大纲是否存在
+    outline_path = sm.state_dir / "chapter_outlines.json"
+    if not outline_path.exists():
+        raise HTTPException(404, "章节大纲不存在，请先生成章节大纲")
+    
+    try:
+        import json
+        outlines_raw = json.loads(outline_path.read_text(encoding="utf-8"))
+        from core.narrative import ChapterOutlineSchema
+        
+        # 找到目标章节的大纲
+        target_outline = None
+        for outline_data in outlines_raw:
+            if outline_data.get("chapter_number") == req.chapter:
+                target_outline = ChapterOutlineSchema.model_validate(outline_data)
+                break
+        
+        if not target_outline:
+            raise HTTPException(404, f"第 {req.chapter} 章的大纲不存在")
+        
+        # 3. 如果是连锁重写，先回滚到目标章节之前
+        if req.cascade:
+            sm.rollback_to_chapter(req.chapter)
+        
+        # 4. 初始化写作管线
+        from core.setup import SetupLoader
+        from core.pipeline import WritingPipeline
+        from core.agents import ArchitectAgent, WriterAgent, AuditorAgent, ReviserAgent, SummaryAgent, QualityAgent
+        from core.narrative import NarrativeEngine
+        from core.validators import PostWriteValidator
+        
+        state = SetupLoader.restore(PROJECT_ROOT, book_id)
+        protagonist = state.characters.get(state.config.protagonist_id)
+        if protagonist is None:
+            for ch in state.characters.values():
+                if getattr(ch, "role", None) == "protagonist":
+                    protagonist = ch
+                    break
+        
+        llm = _create_llm(temperature=0.7)
+        engine = NarrativeEngine(llm)
+        
+        pipeline = WritingPipeline(
+            state_manager=sm,
+            architect=ArchitectAgent(llm),
+            writer=WriterAgent(llm, style_guide=state.config.style_guide, genre=state.config.genre),
+            auditor=AuditorAgent(_create_llm(temperature=0.0)),
+            reviser=ReviserAgent(llm),
+            narrative_engine=engine,
+            summary_agent=SummaryAgent(llm),
+            validator=PostWriteValidator(state.config.custom_forbidden_words),
+            protagonist=protagonist,
+            all_characters=list(state.characters.values()),
+        )
+        
+        # 5. 执行重写
+        result = pipeline.rewrite_chapter(
+            chapter_outline=target_outline,
+            rewrite_reason=req.reason,
+            verbose=True,
+        )
+        
+        # 6. 如果是连锁重写，继续重写后续章节
+        if req.cascade:
+            ws = sm.read_world_state()
+            max_chapter = ws.current_chapter
+            for ch in range(req.chapter + 1, max_chapter + 1):
+                # 找到该章节的大纲
+                ch_outline = None
+                for outline_data in outlines_raw:
+                    if outline_data.get("chapter_number") == ch:
+                        ch_outline = ChapterOutlineSchema.model_validate(outline_data)
+                        break
+                
+                if ch_outline:
+                    pipeline.run(ch_outline, verbose=True)
+        
+        return {
+            "ok": True,
+            "chapter": req.chapter,
+            "word_count": result.word_count,
+            "quality_score": result.quality_score,
+            "cascade": req.cascade,
+        }
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(500, f"重写失败：{str(e)}")
+
+
+@app.get("/api/books/{book_id}/can-rewrite/{chapter}")
+def can_rewrite_chapter(book_id: str, chapter: int):
+    """检查是否可以重写指定章节"""
+    sm = _sm(book_id)
+    
+    # 检查快照是否存在
+    has_snapshot = sm.has_snapshot(chapter - 1)
+    
+    # 检查章节大纲是否存在
+    outline_path = sm.state_dir / "chapter_outlines.json"
+    has_outline = outline_path.exists()
+    
+    # 检查该章节是否已写
+    final_path = sm.chapter_dir / f"ch{chapter:04d}_final.md"
+    has_written = final_path.exists()
+    
+    return {
+        "can_rewrite": has_snapshot and has_outline,
+        "has_snapshot": has_snapshot,
+        "has_outline": has_outline,
+        "has_written": has_written,
+        "snapshot_chapter": chapter - 1,
+    }
+
+
 @app.post("/api/action/audit")
 def action_audit(book_id: str, chapter: int):
     from dotenv import load_dotenv

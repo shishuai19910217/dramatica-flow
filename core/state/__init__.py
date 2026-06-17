@@ -590,6 +590,80 @@ class StateManager:
         for key_str, content in data["truth_files"].items():
             self.write_truth(TruthFileKey(key_str), content)
 
+    # ── 章节重写支持 ─────────────────────────────────────────────────────────────
+
+    def rollback_to_chapter(self, target_chapter: int) -> None:
+        """
+        回滚世界状态到指定章节之前
+        
+        Args:
+            target_chapter: 目标章节号（将恢复到该章开始前的状态）
+        """
+        import re
+        
+        # 1. 从快照恢复（恢复到目标章节开始前的状态）
+        self.restore_snapshot(target_chapter - 1)
+        
+        # 2. 删除目标章节及之后的所有章节文件
+        ws = self.read_world_state()
+        max_chapter = ws.current_chapter
+        for ch in range(target_chapter, max_chapter + 1):
+            draft_path = self.chapter_dir / f"ch{ch:04d}_draft.md"
+            final_path = self.chapter_dir / f"ch{ch:04d}_final.md"
+            if draft_path.exists():
+                draft_path.unlink()
+            if final_path.exists():
+                final_path.unlink()
+        
+        # 3. 更新当前章节为目标章节-1
+        ws = self.read_world_state()
+        ws.current_chapter = target_chapter - 1
+        self.write_world_state(ws)
+
+    def delete_chapter_records(self, chapter: int) -> None:
+        """
+        删除指定章节的记录（摘要、因果链、情感弧线等）
+        
+        Args:
+            chapter: 要删除记录的章节号
+        """
+        import re
+        
+        # 1. 删除章节摘要中的该章记录
+        summaries = self.read_truth(TruthFileKey.CHAPTER_SUMMARIES)
+        pattern = rf"\n## 第 {chapter} 章.*?(?=\n## 第|$)"
+        summaries = re.sub(pattern, "", summaries, flags=re.DOTALL)
+        self.write_truth(TruthFileKey.CHAPTER_SUMMARIES, summaries.strip())
+        
+        # 2. 删除因果链中的该章记录
+        causal = self.read_truth(TruthFileKey.CAUSAL_CHAIN)
+        pattern = rf"\n### Ch\.{chapter}.*?(?=\n### Ch\.|$)"
+        causal = re.sub(pattern, "", causal, flags=re.DOTALL)
+        self.write_truth(TruthFileKey.CAUSAL_CHAIN, causal.strip())
+        
+        # 3. 删除情感弧线中的该章记录
+        emotional = self.read_truth(TruthFileKey.EMOTIONAL_ARCS)
+        pattern = rf"\n- Ch\.{chapter}.*"
+        emotional = re.sub(pattern, "", emotional)
+        self.write_truth(TruthFileKey.EMOTIONAL_ARCS, emotional.strip())
+        
+        # 4. 删除角色矩阵中该章的信息揭示记录
+        matrix = self.read_truth(TruthFileKey.CHARACTER_MATRIX)
+        pattern = rf"\n- Ch\.{chapter}.*"
+        matrix = re.sub(pattern, "", matrix)
+        self.write_truth(TruthFileKey.CHARACTER_MATRIX, matrix.strip())
+        
+        # 5. 删除当前状态中该章的资源变化记录
+        current = self.read_truth(TruthFileKey.CURRENT_STATE)
+        pattern = rf"\n### Ch\.{chapter} 资源变化.*?(?=\n###|$)"
+        current = re.sub(pattern, "", current, flags=re.DOTALL)
+        self.write_truth(TruthFileKey.CURRENT_STATE, current.strip())
+
+    def has_snapshot(self, chapter: int) -> bool:
+        """检查指定章节的快照是否存在"""
+        path = self.snapshot_dir / f"ch{chapter:04d}.json"
+        return path.exists()
+
     # ── 配置读写 ─────────────────────────────────────────────────────────────────
 
     def read_config(self) -> dict:
