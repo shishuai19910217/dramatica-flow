@@ -550,20 +550,8 @@ class WritingPipeline:
             if verbose:
                 print(f"  [{ch}] {msg}")
 
-        # ── 步骤1: 删除旧记录 ─────────────────────────────────────────────────
-        log("删除旧记录...")
-        self.sm.delete_chapter_records(ch)
-
-        # ── 步骤2: 删除旧文件 ──────────────────────────────────────────────────
-        log("删除旧文件...")
-        draft_path = self.sm.chapter_dir / f"ch{ch:04d}_draft.md"
-        final_path = self.sm.chapter_dir / f"ch{ch:04d}_final.md"
-        if draft_path.exists():
-            draft_path.unlink()
-        if final_path.exists():
-            final_path.unlink()
-
-        # ── 步骤3: 读取上下文（与 run 相同）────────────────────────────────────
+        # ── 步骤1: 回滚已在 server.py 中完成，此处直接读取上下文 ───────────────
+        # ── 步骤2: 读取上下文（与 run 相同）────────────────────────────────────
         log("读取上下文...")
         world_context = self.sm.read_truth_bundle([
             TruthFileKey.CURRENT_STATE,

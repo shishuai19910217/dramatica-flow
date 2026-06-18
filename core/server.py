@@ -4610,9 +4610,8 @@ def rewrite_chapter(book_id: str, req: RewriteChapterReq):
         if not target_outline:
             raise HTTPException(404, f"第 {req.chapter} 章的大纲不存在")
         
-        # 3. 如果是连锁重写，先回滚到目标章节之前
-        if req.cascade:
-            sm.rollback_to_chapter(req.chapter)
+        # 3. 回滚到目标章节之前（无论单章还是连锁重写都需要回滚状态）
+        sm.rollback_to_chapter(req.chapter, delete_following_chapters=req.cascade)
         
         # 4. 初始化写作管线
         from core.setup import SetupLoader
