@@ -1186,7 +1186,7 @@ class WritingPipeline:
                 ))
                 self.sm.append_truth(
                     TruthFileKey.CHARACTER_MATRIX,
-                    f"\n- Ch.{chapter} [{char_id}] 得知：{info_key} — {content}\n",
+                    f"\n- Ch.{chapter} [{char_id}] 得知：{content}\n",
                 )
 
         # 8. 资源变化（附加记录到当前状态）
